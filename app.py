@@ -688,31 +688,25 @@ html_code = f"""
         margin-bottom: 15px;
     }}
     
-    .number-grid {{
-        display: grid;
-        grid-template-columns: repeat(9, 72px);
-        gap: 10px;
-        margin: 0 auto 15px auto;
-        justify-content: center;
-        justify-items: center;
-        align-items: center;
-    }}
-    형\
-    .number-btn {{
-        width: 72px;
-        height: 32px;
-        border-radius: 16px;
-        border: none;
-        font-size: 13px;
-        font-weight: bold;
-        cursor: pointer;
-        transition: all 0.3s;
-        position: relative;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }}
-    
+    .number-select {{
+    display: grid;
+    grid-template-columns: repeat(9, 1fr);
+    gap: 6px;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 10px;
+}}
+
+.number-btn {{
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    border-radius: 50%;
+    background: #f1f5f9;
+    border: none;
+    font-weight: bold;
+    cursor: pointer;
+}}
+        
     .number-btn::before {{
         content: '';
         position: absolute;
