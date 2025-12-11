@@ -699,7 +699,7 @@ html_code = f"""
     padding: 10px;
 }}
 
-.number-btn {
+.number-btn {{
     width: 100%;
     max-width: 48px; /* ✅ 버튼 최대 너비 제한 */
     aspect-ratio: 1 / 1;
@@ -708,7 +708,7 @@ html_code = f"""
     border: none;
     font-weight: bold;
     cursor: pointer;
-}
+}}
         
     .number-btn::before {{
         content: '';
