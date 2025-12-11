@@ -687,25 +687,28 @@ html_code = f"""
         text-align: center;
         margin-bottom: 15px;
     }}
-    
-    .number-select {{
+
+.number-select {{
     display: grid;
     grid-template-columns: repeat(9, 1fr);
     gap: 6px;
     width: 100%;
+    max-width: 500px; /* ✅ 최대 너비 제한 */
+    margin: 0 auto;
     box-sizing: border-box;
     padding: 10px;
 }}
 
-.number-btn {{
+.number-btn {
     width: 100%;
+    max-width: 48px; /* ✅ 버튼 최대 너비 제한 */
     aspect-ratio: 1 / 1;
     border-radius: 50%;
     background: #f1f5f9;
     border: none;
     font-weight: bold;
     cursor: pointer;
-}}
+}
         
     .number-btn::before {{
         content: '';
