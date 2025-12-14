@@ -688,7 +688,7 @@ html_code = f"""
         margin-bottom: 15px;
     }}
     
-    .number-grid {
+    .number-grid {{
         display: grid;
         grid-template-columns: repeat(9, minmax(8vw, 60px));
         gap: 2vw;
@@ -696,9 +696,9 @@ html_code = f"""
         justify-content: center;
         justify-items: center;
         align-items: center;
-    }
+    }}
 
-    .number-btn {
+    .number-btn {{
         width: 8vw;
         min-width: 36px;
         max-width: 60px;
@@ -713,20 +713,20 @@ html_code = f"""
         display: flex;
         align-items: center;
         justify-content: center;
-    }
+    }}
 
-    @media (max-width: 600px) {
-        .number-grid {
+    @media (max-width: 600px) {{
+        .number-grid {{
             grid-template-columns: repeat(5, minmax(14vw, 48px));
             gap: 3vw;
-        }
-        .number-btn {
+        }}
+        .number-btn {{
             width: 14vw;
             min-width: 32px;
             max-width: 48px;
             font-size: 4vw;
-        }
-    }
+        }}
+    }}
     
     .number-btn::before {{
         content: '';
