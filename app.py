@@ -167,7 +167,7 @@ stats_data = {
 stats_json = json.dumps(stats_data)
 
 # HTML + JavaScript로 애니메이션 구현
-html_code = f"""
+html_template = """
 <!DOCTYPE html>
 <html>
 <head>
@@ -398,20 +398,20 @@ html_code = f"""
     
     #result {{
         text-align: center;
-        font-size: 28px;
-        color: white;
-        font-weight: bold;
-        padding: 20px 40px;
-        background: linear-gradient(135deg, #1e293b, #334155);
-        border-radius: 20px;
-        margin-bottom: 20px;
-        min-height: 80px;
+        font-size: 18px;
+        color: #000000;
+        font-weight: 700;
+        padding: 12px 24px;
+        background: #e5e7eb; /* 연한 회색 배경 */
+        border-radius: 12px;
+        margin-bottom: 12px;
+        min-height: 56px;
         display: flex;
         align-items: center;
         justify-content: center;
-        text-shadow: 2px 2px 5px rgba(0,0,0,0.5);
-        box-shadow: 0 5px 20px rgba(0,0,0,0.4);
-        border: 3px solid rgba(255,255,255,0.2);
+        text-shadow: none;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        border: 1px solid rgba(0,0,0,0.08);
         max-width: 700px;
         width: 100%;
     }}
@@ -657,6 +657,39 @@ html_code = f"""
         background: linear-gradient(135deg, #059669, #047857);
         transform: translateY(-2px);
         box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+    }}
+
+    /* 연도 버튼 (작고 심플하게) */
+    .year-btn {{
+        padding: 6px 10px;
+        background: #ffffff;
+        color: #111827;
+        border: 1px solid rgba(17,24,39,0.08);
+        border-radius: 8px;
+        font-weight: 700;
+        cursor: pointer;
+        font-size: 13px;
+        transition: all 0.18s;
+    }}
+
+    .year-btn:hover {{
+        transform: translateY(-2px);
+        box-shadow: 0 6px 14px rgba(17,24,39,0.06);
+        background: #f3f4f6;
+    }}
+
+    /* 결과 카드 닫기 버튼 */
+    .close-card-btn {{
+        position: absolute;
+        top: 6px;
+        right: 8px;
+        padding: 4px 8px;
+        font-size: 12px;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        background: #111827;
+        color: #ffffff;
     }}
     
     /* 사용자 선택 섹션 */
@@ -1158,31 +1191,24 @@ html_code = f"""
     <div id="hexagram-container">
         <div class="hexagram-title">🔮 주역 64괘 행운 번호 🔮</div>
         <div class="hexagram-info">
-            <div class="time-display">📅 {current_time.strftime('%Y년 %m월 %d일 %H시')}</div>
-            <div class="hexagram-name">✨ {hexagram_name} (제{hexagram_num + 1}괘) ✨</div>
+                <div class="time-display">📅 @@CURRENT_TIME@@</div>
+            <div class="hexagram-name">✨ @@HEXAGRAM_NAME@@ (제@@HEXAGRAM_NUM@@괘) ✨</div>
         </div>
         <div class="lucky-numbers">
             <div class="lucky-title">🍀 당신의 행운 번호 8개</div>
             <div class="lucky-balls">
-                {''.join([f'<div class="lucky-ball">{num}</div>' for num in lucky_numbers])}
+                @@LUCKY_BALLS@@
             </div>
         </div>
         <div class="hexagram-desc">
-            {hexagram_desc}
+            @@HEXAGRAM_DESC@@
         </div>
     </div>
     
     <div id="combo-container">
         <div class="stats-title">🎯 추천 조합 (6개 번호)</div>
         <div class="combo-items">
-            {''.join([f'''
-            <div class="combo-item">
-                <div class="combo-numbers">
-                    {''.join([f'<div class="combo-ball" style="background: {get_ball_color(num)}"><span>{num}</span></div>' for num in sorted(combo)])}
-                </div>
-                <button class="copy-btn" onclick="copyCombo({list(sorted(combo))})">📋 복사</button>
-            </div>
-            ''' for combo in recommended_combos])}
+            @@RECOMMENDED_COMBOS@@
         </div>
     </div>
     
@@ -1194,7 +1220,7 @@ html_code = f"""
         <div style="display: flex; justify-content: center; width: 100%;">
             <div class="number-grid">
                 <!-- 1~45번 번호 선택 버튼 복구 -->
-                {''.join([f'<button class="number-btn" data-num="{i}" onclick="toggleNumber({i})"><span>{i}</span></button>' for i in range(1, 46)])}
+                @@NUMBER_BUTTONS@@
             </div>
         </div>
         <div class="selected-display">
@@ -1236,7 +1262,7 @@ html_code = f"""
 
 <script>
     const colors = ["🔵", "🔴", "🟡", "🟢", "🟣", "🟠"];
-    const finalNumbers = [{final_str}];
+    const finalNumbers = [@@FINAL_STR@@];
     let isRunning = false;
     
     // 배경 파티클 생성
@@ -1335,7 +1361,7 @@ html_code = f"""
     }}
     
     // 통계 데이터
-    const statsData = {stats_json};
+    const statsData = @@STATS_JSON@@;
     let currentRound = 150;
     
     // 꺾은선 그래프 그리기
@@ -1514,6 +1540,22 @@ html_code = f"""
         '개': '🐶',
         '돼지': '🐷'
     }};
+
+    // 띠별 대표 출생 연도 (5개씩, 12년 주기)
+    const zodiacYears = {{
+        '쥐': [1948, 1960, 1972, 1984, 1996],
+        '소': [1949, 1961, 1973, 1985, 1997],
+        '호랑이': [1950, 1962, 1974, 1986, 1998],
+        '토끼': [1951, 1963, 1975, 1987, 1999],
+        '용': [1952, 1964, 1976, 1988, 2000],
+        '뱀': [1953, 1965, 1977, 1989, 2001],
+        '말': [1954, 1966, 1978, 1990, 2002],
+        '양': [1955, 1967, 1979, 1991, 2003],
+        '원숭이': [1956, 1968, 1980, 1992, 2004],
+        '닭': [1957, 1969, 1981, 1993, 2005],
+        '개': [1958, 1970, 1982, 1994, 2006],
+        '돼지': [1959, 1971, 1983, 1995, 2007]
+    }};
     
     let selectedZodiac = null;
     
@@ -1568,7 +1610,114 @@ html_code = f"""
                     container.classList.remove('spinning');
                     displayBalls(sortedNumbers, true);
                     createConfetti();
-                    isRunning = false;
+                        isRunning = false;
+
+                        // 선택한 띠의 대표 출생 연도 5개 표시 (각 연도를 클릭하면 연도별 추천 번호 생성)
+                        const years = zodiacYears[zodiac] || [];
+                        let yearsHtml = '';
+                        for(let i = 0; i < years.length; i++) {{
+                        yearsHtml += `<button class="year-btn" style="margin:4px; min-width:70px;" onclick="selectYear('${{zodiac}}', ${{years[i]}})">${{years[i]}}</button>`;
+                    }}
+                        result.style.display = 'flex';
+                        // 한 행에 간단히 표시 (출생년도 테스트) + 하단에 결과를 쌓을 영역 추가
+                        result.innerHTML = `<div style="display:flex;flex-direction:column;gap:8px;width:100%;">
+                            <div style="display:flex;flex-direction:row;align-items:center;gap:10px;flex-wrap:wrap;">
+                                <div style="font-size:16px; font-weight:700;">출생년도 테스트:</div>
+                                <div style="display:flex;gap:6px;align-items:center;">${{yearsHtml}}</div>
+                            </div>
+                            <div id="year-results" style="width:100%; display:flex;flex-direction:column;gap:6px;align-items:center;"></div>
+                        </div>`;
+
+                        // 주역 기반 오행 2개 선택(자동 날짜 사용)
+                        (function() {{
+                            // 현재 시간 사용 (개인정보 보호: 사용자 입력 없음)
+                            const now = new Date();
+                            const y = now.getFullYear();
+                            const m = now.getMonth() + 1;
+                            const d = now.getDate();
+                            const h = now.getHours();
+
+                            // 간단한 hexagram 계산 (서버와 동일한 방식)
+                            const hexNum = ((y + m + d + h) % 64);
+                            const top1 = hexNum;
+                            const top2 = (hexNum + 1) % 64;
+                            const rep1 = (top1 % 45) + 1;
+                            const rep2 = (top2 % 45) + 1;
+
+                            function getElementByNum(n) {{
+                                if(n <= 9) return '목';
+                                if(n <= 18) return '화';
+                                if(n <= 27) return '토';
+                                if(n <= 36) return '금';
+                                return '수';
+                            }}
+
+                            const elIcons = {{ '목':'🌳', '화':'🔥', '토':'⛰️', '금':'⚙️', '수':'💧' }};
+                            const elColors = {{ '목':'#10b981', '화':'#ef4444', '토':'#a16207', '금':'#f59e0b', '수':'#3b82f6' }};
+
+                            function makeBadge(el, num) {{
+                                const icon = elIcons[el] || '•';
+                                const color = elColors[el] || '#999999';
+                                return `<span style="display:inline-flex;align-items:center;gap:8px;margin:0 6px;">
+                                            <span style="width:28px;height:28px;border-radius:8px;background:${{color}};display:inline-flex;align-items:center;justify-content:center;color:white;font-weight:700;">${{icon}}</span>
+                                            <span style="font-size:14px;color:#111;">${{el}} ${{num}}</span>
+                                        </span>`;
+                            }
+
+                            // mulberry32 PRNG
+                            function mulberry32(a) {{
+                                return function() {{
+                                    var t = a += 0x6D2B79F5;
+                                    t = Math.imul(t ^ t >>> 15, t | 1);
+                                    t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+                                    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+                                }};
+                            }}
+
+                            function pickFromElement(el, seedVal) {{
+                                const ranges = {{ '목':[1,9], '화':[10,18], '토':[19,27], '금':[28,36], '수':[37,45] }};
+                                const r = ranges[el];
+                                const pool = [];
+                                for(let i = r[0]; i <= r[1]; i++) pool.push(i);
+                                const rnd = mulberry32(seedVal >>> 0);
+                                const idx = Math.floor(rnd() * pool.length);
+                                return pool[idx];
+                            }}
+
+                            const el1 = getElementByNum(rep1);
+                            const el2 = getElementByNum(rep2);
+                            const seedA = y * 10000 + m * 100 + d + h + rep1;
+                            const seedB = y * 10000 + m * 100 + d + h + rep2;
+                            const pickA = pickFromElement(el1, seedA);
+                            const pickB = pickFromElement(el2, seedB);
+
+                            // 결과 카드 표시
+                            const yearResultsDiv = document.getElementById('year-results');
+                            if(yearResultsDiv) {{
+                                const card = document.createElement('div');
+                                card.style.width = '100%';
+                                card.style.maxWidth = '680px';
+                                card.style.background = '#e5e7eb';
+                                card.style.color = '#000000';
+                                card.style.borderRadius = '10px';
+                                card.style.padding = '10px 14px';
+                                card.style.boxShadow = '0 4px 12px rgba(0,0,0,0.06)';
+                                card.style.fontWeight = '700';
+                                card.style.textAlign = 'center';
+                                card.style.position = 'relative';
+                                card.innerHTML = `<div style="font-size:14px;">${{zodiacEmoji[zodiac]}} ${{zodiac}} - 주역상위괘: ${{top1}}/${{top2}} → ` + makeBadge(el1, pickA) + makeBadge(el2, pickB) + `</div>`;
+
+                                const closeBtn = document.createElement('button');
+                                closeBtn.className = 'close-card-btn';
+                                closeBtn.textContent = '닫기';
+                                closeBtn.onclick = function() {{
+                                    if(card && card.parentNode) card.parentNode.removeChild(card);
+                                }};
+                                card.appendChild(closeBtn);
+
+                                yearResultsDiv.insertBefore(card, yearResultsDiv.firstChild);
+                            }}
+                        }})();
                 }}
             }}, 70);
             
@@ -1579,6 +1728,108 @@ html_code = f"""
         // 띠 선택 시 그래프는 다시 그리지 않음 (150,75,45,30,15 버튼으로만 변경)
     }}
     
+    // 특정 연도 선택 시 해당 연도를 시드로 사용하여 추천 번호 생성
+    function selectYear(zodiac, year) {{
+        if(isRunning) return;
+        const result = document.getElementById('result');
+
+        // 간단한 시드 기반 PRNG (mulberry32)
+        function mulberry32(a) {{
+            return function() {{
+                var t = a += 0x6D2B79F5;
+                t = Math.imul(t ^ t >>> 15, t | 1);
+                t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+                return ((t ^ t >>> 14) >>> 0) / 4294967296;
+            }};
+        }}
+
+        // 시드 생성: 연도 기반 + 띠의 문자 코드 값 조합
+        const seedVal = parseInt(year, 10) * 9973 + zodiac.charCodeAt(0);
+        const rnd = mulberry32(seedVal >>> 0);
+
+        // 1~45에서 중복 없이 6개 선택
+        const pool = Array.from({{length:45}}, (_, i) => i + 1);
+        const nums = [];
+        while(nums.length < 6 && pool.length > 0) {{
+            const idx = Math.floor(rnd() * pool.length);
+            nums.push(pool[idx]);
+            pool.splice(idx, 1);
+        }}
+        nums.sort((a, b) => a - b);
+
+        // 볼 표시 및 결과 카드를 하단에 추가
+        const yearResults = document.getElementById('year-results');
+        const container = document.getElementById('ball-container');
+        if(!yearResults) {{
+            // 안전 장치: 만약 year-results 영역이 없으면 기존 방식으로 출력
+            displayBalls(nums, true);
+            result.style.display = 'flex';
+            result.innerHTML = `${{zodiacEmoji[zodiac]}} ${{zodiac}} 띠 ${{year}}년 출생 추천 번호: ${{nums.join(' - ')}}`;
+            return;
+        }}
+
+        // 스핀 애니메이션 시작 (짧은 미리보기)
+        let spinCount = 0;
+        container.classList.add('spinning');
+        const spinInterval = setInterval(() => {{
+            displayBalls(getRandomNumbers(), false, true);
+            spinCount++;
+            if(spinCount >= 18) {{
+                clearInterval(spinInterval);
+                container.classList.remove('spinning');
+                // 최종 번호 표시 및 폭죽
+                displayBalls(nums, true);
+                createConfetti();
+
+                // 결과 카드 생성
+                const card = document.createElement('div');
+                card.style.width = '100%';
+                card.style.maxWidth = '680px';
+                card.style.background = '#e5e7eb';
+                card.style.color = '#000000';
+                card.style.borderRadius = '10px';
+                card.style.padding = '10px 14px';
+                card.style.boxShadow = '0 4px 12px rgba(0,0,0,0.06)';
+                card.style.fontWeight = '700';
+                card.style.textAlign = 'center';
+                const elIcons_local = {{ '목':'🌳', '화':'🔥', '토':'⛰️', '금':'⚙️', '수':'💧' }};
+                const elColors_local = {{ '목':'#10b981', '화':'#ef4444', '토':'#a16207', '금':'#f59e0b', '수':'#3b82f6' }};
+                function getElementLocal(n) {{
+                    if(n <= 9) return '목';
+                    if(n <= 18) return '화';
+                    if(n <= 27) return '토';
+                    if(n <= 36) return '금';
+                    return '수';
+                }
+                const badges = nums.map(n => {{
+                    const el = getElementLocal(n);
+                    const icon = elIcons_local[el] || '•';
+                    const color = elColors_local[el] || '#999999';
+                    return `<span style="display:inline-flex;align-items:center;gap:8px;margin:0 6px;">
+                                <span style="width:26px;height:26px;border-radius:7px;background:${{color}};display:inline-flex;align-items:center;justify-content:center;color:white;font-weight:700;">${{icon}}</span>
+                                <span style="font-size:14px;color:#111;">${{n}}</span>
+                            </span>`;
+                }}).join('');
+                card.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;gap:6px;"><div style="font-size:14px;">${{zodiacEmoji[zodiac]}} ${{zodiac}} 띠 ${{year}}년 출생 추천 번호</div><div style="display:flex;flex-wrap:wrap;justify-content:center;">${{badges}}</div></div>`;
+
+                // 닫기 버튼 추가 (사용자가 직접 닫음)
+                card.style.position = 'relative';
+                const closeBtn = document.createElement('button');
+                closeBtn.className = 'close-card-btn';
+                closeBtn.textContent = '닫기';
+                closeBtn.onclick = function() {{
+                    if(card && card.parentNode) card.parentNode.removeChild(card);
+                    // 기본 공으로 복원
+                    displayBalls([8, 14, 15, 19, 31, 32]);
+                }};
+                card.appendChild(closeBtn);
+
+                // 하단에 추가
+                yearResults.insertBefore(card, yearResults.firstChild);
+            }}
+        }}, 70);
+    }}
+
     // 조합 복사 기능
     function copyCombo(numbers) {{
         const text = numbers.join(', ');
@@ -1817,5 +2068,33 @@ html_code = f"""
 </body>
 </html>
 """
+
+# Replace placeholders with actual values (do replacements after template to avoid f-string brace issues)
+# The template was authored with doubled braces to avoid f-string issues; convert them back to single braces for valid HTML/JS/CSS
+html_template = html_template.replace('{{', '{').replace('}}', '}')
+html_code = html_template.replace('@@CURRENT_TIME@@', current_time.strftime('%Y년 %m월 %d일 %H시'))
+html_code = html_code.replace('@@HEXAGRAM_NAME@@', hexagram_name)
+html_code = html_code.replace('@@HEXAGRAM_NUM@@', str(hexagram_num + 1))
+html_code = html_code.replace('@@LUCKY_BALLS@@', ''.join([f'<div class="lucky-ball">{num}</div>' for num in lucky_numbers]))
+html_code = html_code.replace('@@HEXAGRAM_DESC@@', hexagram_desc)
+
+# recommended combos HTML
+recommended_html = ''.join([f'''
+            <div class="combo-item">
+                <div class="combo-numbers">
+                    {''.join([f'<div class="combo-ball" style="background: {get_ball_color(num)}"><span>{num}</span></div>' for num in sorted(combo)])}
+                </div>
+                <button class="copy-btn" onclick="copyCombo({list(sorted(combo))})">📋 복사</button>
+            </div>
+            ''' for combo in recommended_combos])
+html_code = html_code.replace('@@RECOMMENDED_COMBOS@@', recommended_html)
+
+# number buttons
+number_buttons = ''.join([f'<button class="number-btn" data-num="{i}" onclick="toggleNumber({i})"><span>{i}</span></button>' for i in range(1, 46)])
+html_code = html_code.replace('@@NUMBER_BUTTONS@@', number_buttons)
+
+# stats and final numbers
+html_code = html_code.replace('@@STATS_JSON@@', stats_json)
+html_code = html_code.replace('@@FINAL_STR@@', final_str)
 
 components.html(html_code, height=1200, scrolling=True)
