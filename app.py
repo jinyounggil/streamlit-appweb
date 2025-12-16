@@ -1,3 +1,19 @@
+# 로또 회차 계산 함수
+def get_lotto_round(now=None):
+    if now is None:
+        now = datetime.now()
+    base_dt = datetime(2025, 12, 13, 21, 0, 0)
+    base_round = 1202
+    if now < base_dt:
+        return base_round
+    else:
+        delta = now - base_dt
+        weeks = delta.days // 7
+        # 21시 이후면 당일도 포함
+        if delta.days % 7 > 0 or now.hour >= 21 or now.minute > 0 or now.second > 0:
+            weeks += 1
+        return base_round + weeks
+
 import streamlit as st
 import streamlit.components.v1 as components
 import random
@@ -1138,6 +1154,9 @@ html_template = """
     <!-- YouTube 및 공유 버튼 -->
     <div class="pointer-animation">👆</div>
     <div class="social-container">
+        <div style="position:fixed;top:15px;right:15px;font-size:2.2rem;font-weight:bold;color:#fff;z-index:1001;background:rgba(16,185,129,0.98);padding:16px 36px;border-radius:28px;box-shadow:0 4px 16px rgba(0,0,0,0.22);letter-spacing:1px;line-height:1.2;">
+            로또 추천 회차 <span style="color:#fff;">@@ROUND@@</span>
+        </div>
         <button class="social-btn youtube-btn" onclick="goToYoutube()">
             ▶️ 구독하기
         </button>
@@ -2096,5 +2115,9 @@ html_code = html_code.replace('@@NUMBER_BUTTONS@@', number_buttons)
 # stats and final numbers
 html_code = html_code.replace('@@STATS_JSON@@', stats_json)
 html_code = html_code.replace('@@FINAL_STR@@', final_str)
+
+# 회차 계산 및 반영
+current_round = get_lotto_round(current_time)
+html_code = html_code.replace('@@ROUND@@', str(current_round))
 
 components.html(html_code, height=1200, scrolling=True)
