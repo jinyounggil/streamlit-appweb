@@ -263,20 +263,9 @@ html_template = """
         100% {{ transform: translateY(-50%) rotate(360deg); }}
     }}
     
-    #subtitle {{
-        font-size: 16px;
-        color: #fff;
-        font-weight: bold;
-        margin-bottom: 15px;
-        text-shadow: 1px 1px 5px rgba(0,0,0,0.5);
-        background: rgba(251, 191, 36, 0.9);
-        padding: 8px 40px;
-        border-radius: 30px;
-        display: inline-block;
-        border: 2px solid #fff;
-        position: relative;
-        white-space: nowrap;
-    }}
+    #subtitle {
+        display: none;
+    }
     
     #subtitle::before {{
         content: '⭐';
@@ -1154,8 +1143,8 @@ html_template = """
     <!-- YouTube 및 공유 버튼 -->
     <div class="pointer-animation">👆</div>
     <div class="social-container">
-        <div style="position:fixed;top:15px;right:15px;font-size:2.2rem;font-weight:bold;color:#fff;z-index:1001;background:rgba(16,185,129,0.98);padding:16px 36px;border-radius:28px;box-shadow:0 4px 16px rgba(0,0,0,0.22);letter-spacing:1px;line-height:1.2;">
-            로또 추천 회차 <span style="color:#fff;">@@ROUND@@</span>
+        <div style="position:fixed;top:13px;right:13px;font-size:1.25rem;font-weight:bold;color:#fff;z-index:1001;background:rgba(16,185,129,0.98);padding:7px 22px;border-radius:18px;box-shadow:0 3px 12px rgba(0,0,0,0.20);letter-spacing:0.7px;line-height:1.15;">
+            로또 추천회차 <span style="color:#fff;">@@ROUND@@</span>
         </div>
         <button class="social-btn youtube-btn" onclick="goToYoutube()">
             ▶️ 구독하기
@@ -1273,8 +1262,8 @@ html_template = """
     <div class="warning-notice">
         <strong style="font-size: 18px; color: #fbbf24;">⚠️ 중요 안내</strong>
         <div style="font-size: 15px; font-weight: bold; margin-top: 10px; line-height: 1.8;">
-            본 영상은 재미와 참고용입니다. 당첨을 보장하지 않습니다.<br>
-            로또는 확률 게임입니다. 무리한 구매는 자제하세요.
+            본 영상은 재미와 참고용입니다. 로또는 확률게임 이며 당첨을 보장하지 않읍니다<br>
+            무리한 구매는 삼가 하세요
         </div>
     </div>
 
