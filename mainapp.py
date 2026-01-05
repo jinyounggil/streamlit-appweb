@@ -21,8 +21,8 @@ def get_color(n):
 def tab1_content():
   st.markdown("""
   <div style='background-color:#111; border-radius:20px; padding:10px; text-align:center;'>
-    <h2 style='color:gold; font-size:42px;'>🎵 띠별추천번호 생성기</h2>
-    <p style='color:white; font-size:20px;'>본인 띠와 출생 년도로 5조합을 확인하세요</p>
+    <h2 style='color:gold; font-size:42px;'>🎵 밴드추천번호 생성기</h2>
+    <p style='color:white; font-size:20px;'>본인 띠와 출생년도로 5조합을 확인하세요</p>
   </div>
   """, unsafe_allow_html=True)
   zodiac_years = {
@@ -324,31 +324,23 @@ with col_center:
   """, unsafe_allow_html=True)
 with col_right:
   # 회차 및 날짜 계산
-  now = datetime.datetime.now()
-  # 1206회차 기준: 2026년 1월 3일 21시 시작, 1월 10일 21시 추첨
-  base_round = 1206
-  base_start_datetime = datetime.datetime(2026, 1, 3, 21, 0, 0)
-  
-  # 현재 시각 기준으로 몇 주 지났는지 계산
-  time_diff = (now - base_start_datetime).total_seconds()
-  weeks_passed = int(time_diff // (7 * 24 * 3600))
-  
-  # 현재 회차와 다음 추첨일 계산
-  if time_diff < 0:
-    # 기준일 이전이면 이전 회차
-    round_num = base_round - 1
-    next_draw_datetime = base_start_datetime
+  today = datetime.date.today()
+  base_round = 1205
+  base_date = datetime.date(2026, 1, 3)
+  days_diff = (today - base_date).days
+  if days_diff >= 0:
+    round_num = base_round + (days_diff // 7)
+    next_draw = base_date + datetime.timedelta(days=7 * ((days_diff // 7) + 1))
   else:
-    round_num = base_round + weeks_passed
-    next_draw_datetime = base_start_datetime + datetime.timedelta(weeks=weeks_passed + 1)
-  
+    round_num = base_round
+    next_draw = base_date
   st.markdown(f"""
   <div style='text-align:right; margin-top:10px;'>
     <span style='font-size:22px; font-weight:700; color:#222;'>
       {round_num}회차
     </span><br>
     <span style='font-size:16px; color:#666;'>
-      추첨일: {next_draw_datetime.strftime('%Y년 %m월 %d일')} 21시까지
+      추첨일: {next_draw.strftime('%Y년 %m월 %d일')} 21시까지
     </span>
   </div>
   """, unsafe_allow_html=True)
@@ -429,7 +421,7 @@ st.markdown("""
 
 # Streamlit columns로 레이아웃 분리 (왼쪽 버튼, 오른쪽 big-frame+이미지)
 
-# 왼쪽 띠별 추천번호 프레임을 세로로 일정 간격으로 배치
+# 왼쪽 밴드추천번호 프레임을 세로로 일정 간격으로 배치
 left, right = st.columns([1, 4], gap="large")
 with left:
   st.markdown(
@@ -468,7 +460,7 @@ with left:
   </style>
   """, unsafe_allow_html=True)
   # st.button + 이모지로 멋진 버튼
-  if st.button("🎵 띠별 추천번호"):
+  if st.button("🎵 밴드추천번호"):
     st.session_state['show_tab'] = 'tab1'
   if st.button("🧭 주역 추천번호"):
     st.session_state['show_tab'] = 'tab2'
