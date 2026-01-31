@@ -2,7 +2,6 @@ streamlit
 pandas
 matplotlib
 Pillow
-matplotlib
 requests
 beautifulsoup4
 lxml

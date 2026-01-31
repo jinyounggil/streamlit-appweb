@@ -1,0 +1,36 @@
+name: Update Lotto Data
+
+on:
+  schedule:
+    # 매주 토요일 14:00 UTC (한국 시간 23:00) 실행
+    # 로또 추첨은 약 20:45분이므로 23:00는 안전한 시간입니다.
+    - cron: '0 14 * * 6'
+  workflow_dispatch: # GitHub 웹에서 수동 실행 가능하도록 설정
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: pip install pandas requests beautifulsoup4 lxml
+
+      - name: Run update script
+        run: python update_data.py
+
+      - name: Commit and Push changes
+        run: |
+          git config --global user.name "GitHub Action"
+          git config --global user.email "action@github.com"
+          git add past_results.csv
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update: Latest lotto data" && git push)

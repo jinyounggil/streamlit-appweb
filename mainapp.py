@@ -19,7 +19,7 @@ import re
 from bs4 import BeautifulSoup
 
 # 페이지 설정 (가장 먼저 호출)
-st.set_page_config(layout="wide", page_title="로또킹 분석")
+st.set_page_config(layout="wide", page_title="로또킹 분석", initial_sidebar_state="expanded")
 
 # Query-Parameter를 이용한 탭 관리
 if 'show_tab' not in st.session_state:
@@ -559,10 +559,16 @@ def tab4_content():
         if inner_attempt > 50: # 무한 루프 방지 안전장치
             break
             
+        if not available:
+            break
+            
         remaining_weights = [weights[n] for n in available]
         total_weight = sum(remaining_weights)
         if total_weight == 0:
-            probabilities = [1/len(available)] * len(available)
+            if len(available) > 0:
+                probabilities = [1/len(available)] * len(available)
+            else:
+                break
         else:
             probabilities = [w/total_weight for w in remaining_weights]
         
@@ -632,9 +638,12 @@ def tab4_content():
   
   with col1:
     if st.button("🎲 AI 추천 번호 생성", key="ai_gen_btn", width="stretch"):
-      st.session_state['ai_combinations'] = generate_combinations()
-      st.session_state['ai_show_result'] = True
-      st.session_state['like_count'] += 1
+      try:
+        st.session_state['ai_combinations'] = generate_combinations()
+        st.session_state['ai_show_result'] = True
+        st.session_state['like_count'] += 1
+      except Exception as e:
+        st.error(f"번호 생성 중 오류가 발생했습니다: {e}")
   
   with col2:
     if st.button("🗑️ 초기화", key="ai_clear_btn", width="stretch"):
@@ -762,40 +771,44 @@ def tab5_content():
           try:
             bytes_data = img_file.getvalue()
             cv2_img = cv2.imdecode(np.frombuffer(bytes_data, np.uint8), cv2.IMREAD_COLOR)
-            detector = cv2.QRCodeDetector()
-            data, bbox, _ = detector.detectAndDecode(cv2_img)
             
-            if data and "dhlottery.co.kr" in data:
-               if "v=" in data:
-                 q_str = data.split("v=")[1]
-                 round_part = q_str[:4]
-                 try:
-                   scanned_round = int(round_part)
-                   if scanned_round in valid_rounds:
-                     st.session_state["check_round_select"] = scanned_round
-                   else:
-                     st.warning(f"스캔된 {scanned_round}회차 데이터가 아직 없습니다.")
-                 except:
-                   pass
-                 
-                 # 게임 번호 추출 (알파벳 + 숫자12자리)
-                 # QR코드 포맷: 회차(4자리) + 구분자(알파벳) + 번호(12자리) + 구분자 + ...
-                 parts = re.split(r'[a-z]+', q_str)
-                 raw_games = parts[1:] if len(parts) > 1 else []
-                 games = [g for g in raw_games if len(g) >= 12]
-                 
-                 for i, g in enumerate(games):
-                   if i < 5:
-                     nums = [int(g[j:j+2]) for j in range(0, 12, 2)]
-                     st.session_state[f"check_g{i}"] = ", ".join(map(str, nums))
-                 
-                 # 나머지 칸 비우기
-                 for i in range(min(len(games), 5), 5):
-                   st.session_state[f"check_g{i}"] = ""
-                   
-                 st.success(f"✅ QR코드 인식 성공! {len(games)}게임이 입력되었습니다.")
-            elif data:
-               st.warning("로또 복권 QR코드가 아닙니다.")
+            if cv2_img is None:
+                st.warning("이미지를 인식할 수 없습니다.")
+            else:
+                detector = cv2.QRCodeDetector()
+                data, bbox, _ = detector.detectAndDecode(cv2_img)
+                
+                if data and "dhlottery.co.kr" in data:
+                   if "v=" in data:
+                     q_str = data.split("v=")[1]
+                     round_part = q_str[:4]
+                     try:
+                       scanned_round = int(round_part)
+                       if scanned_round in valid_rounds:
+                         st.session_state["check_round_select"] = scanned_round
+                       else:
+                         st.warning(f"스캔된 {scanned_round}회차 데이터가 아직 없습니다.")
+                     except:
+                       pass
+                     
+                     # 게임 번호 추출 (알파벳 + 숫자12자리)
+                     # QR코드 포맷: 회차(4자리) + 구분자(알파벳) + 번호(12자리) + 구분자 + ...
+                     parts = re.split(r'[a-z]+', q_str)
+                     raw_games = parts[1:] if len(parts) > 1 else []
+                     games = [g for g in raw_games if len(g) >= 12]
+                     
+                     for i, g in enumerate(games):
+                       if i < 5:
+                         nums = [int(g[j:j+2]) for j in range(0, 12, 2)]
+                         st.session_state[f"check_g{i}"] = ", ".join(map(str, nums))
+                     
+                     # 나머지 칸 비우기
+                     for i in range(min(len(games), 5), 5):
+                       st.session_state[f"check_g{i}"] = ""
+                       
+                     st.success(f"✅ QR코드 인식 성공! {len(games)}게임이 입력되었습니다.")
+                elif data:
+                   st.warning("로또 복권 QR코드가 아닙니다.")
           except Exception as e:
             st.error(f"QR 스캔 오류: {e}")
 
@@ -1017,6 +1030,9 @@ def render_sidebar():
 
 def render_main_content():
     """ Renders the content for the right main area. """
+    # 메인 콘텐츠 스타일 적용을 위한 래퍼 시작
+    st.markdown('<div class="main-card">', unsafe_allow_html=True)
+    
     show_tab = st.session_state.get('show_tab')
     if show_tab:
         st.markdown(f'<a href="/" target="_self" style="text-decoration:none;"><button style="margin-bottom:20px;">🏠 메인 화면으로</button></a>', unsafe_allow_html=True)
@@ -1033,6 +1049,9 @@ def render_main_content():
             <p class='pointing-finger'>👈</p>
         </div>
         """, unsafe_allow_html=True)
+    
+    # 래퍼 종료
+    st.markdown('</div>', unsafe_allow_html=True)
 
 def get_image_as_base64(path):
     if not os.path.exists(path):
@@ -1198,46 +1217,46 @@ st.markdown(f"""
         display: inline-block; /* transform 적용을 위해 추가 */
     }}
     .header-left span:hover, .header-left a:hover {{ opacity: 1; transform: scale(1.1); }}
-
-    /* --- 메인 카드 레이아웃 (컬럼 직접 스타일링) --- */
-    /* 사이드바 컬럼 스타일링 */
-    [data-testid="stHorizontalBlock"] > div:nth-child(1) > div {{
+    
+    /* --- 사이드바 스타일 (네이티브) --- */
+    section[data-testid="stSidebar"] > div {{
         {card_bg_style}
-        border-radius: 15px;
-        padding: 25px; /* 최소 높이 제거 */
-        border: 1px solid rgba(255, 255, 255, 0.3);
-        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
-        overflow-y: auto;
-        display: flex;
-        flex-direction: column;
-        color: white; /* 기본 텍스트 색상 흰색으로 */
+        border-right: 1px solid rgba(255, 255, 255, 0.3);
+        box-shadow: 4px 0 32px 0 rgba(0, 0, 0, 0.3);
+    }}
+    /* 사이드바 내부 텍스트 색상 강제 지정 */
+    section[data-testid="stSidebar"] .logo, 
+    section[data-testid="stSidebar"] p, 
+    section[data-testid="stSidebar"] span,
+    section[data-testid="stSidebar"] div {{
+        color: white !important;
     }}
 
-    /* 메인 콘텐츠 컬럼 스타일링 */
-    [data-testid="stHorizontalBlock"] > div:nth-child(2) > div {{
+    /* --- 메인 콘텐츠 카드 스타일 --- */
+    .main-card {{
         {card_bg_style}
         border-radius: 15px;
         padding: 25px; /* 최소 높이 제거 */
         border: 1px solid rgba(255, 255, 255, 0.3);
         box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
-        overflow-y: auto;
-        color: white; /* 기본 텍스트 색상 흰색으로 */
+        color: white;
+        margin-bottom: 20px;
     }}
 
     /* 사이드바 내부 콘텐츠 스타일 */
-    [data-testid="stHorizontalBlock"] > div:nth-child(1) .logo {{
+    .logo {{
         text-align: center;
         font-size: 28px;
         font-weight: 900;
         color: white;
         margin-bottom: 20px;
     }}
-    [data-testid="stHorizontalBlock"] > div:nth-child(1) .nav-cards-container {{
+    .nav-cards-container {{
         display: flex;
         flex-direction: column;
         gap: 10px;
     }}
-    [data-testid="stHorizontalBlock"] > div:nth-child(1) .nav-card {{
+    .nav-card {{
         background: #fc5c7d;
         background: -webkit-linear-gradient(to right, #6a82fb, #fc5c7d);
         background: linear-gradient(to right, #6a82fb, #fc5c7d);
@@ -1246,17 +1265,17 @@ st.markdown(f"""
         text-align: center;
         transition: all 0.3s ease;
     }}
-    [data-testid="stHorizontalBlock"] > div:nth-child(1) .nav-card:hover {{
+    .nav-card:hover {{
         transform: scale(1.05);
         box-shadow: 0 5px 15px rgba(0,0,0,0.2);
     }}
-    [data-testid="stHorizontalBlock"] > div:nth-child(1) .nav-card a {{
+    .nav-card a {{
         text-decoration: none;
         color: white;
         font-size: 16px;
         font-weight: 700;
     }}
-    [data-testid="stHorizontalBlock"] > div:nth-child(1) .nav-card .emoji {{
+    .nav-card .emoji {{
         font-size: 24px;
         display: block;
         margin-bottom: 5px;
@@ -1297,15 +1316,12 @@ st.markdown(f"""
 
 render_header()
 
-sidebar_col, main_col = st.columns([1, 2.2])
-
 # --- 왼쪽 사이드바 구성 ---
-with sidebar_col:
+with st.sidebar:
     render_sidebar()
 
 # --- 오른쪽 메인 컨텐츠 구성 ---
-with main_col:
-    render_main_content()
+render_main_content()
 
 # --- 하단 카드 및 QR 코드 구성 ---
 render_footer()
