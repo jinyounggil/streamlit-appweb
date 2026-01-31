@@ -33,17 +33,64 @@ if 'subscribe_count' not in st.session_state:
     st.session_state['subscribe_count'] = 0
 if 'like_count' not in st.session_state:
     st.session_state['like_count'] = 0
+if 'is_subscribed' not in st.session_state:
+    st.session_state['is_subscribed'] = False
 
-# '좋아요' 클릭 처리
+# '좋아요' 및 '구독' 클릭 처리 (인터랙티브 효과 추가)
 try:
-    if st.query_params.get("action") == "like":
+    action = st.query_params.get("action")
+    
+    if action == "restore_subscribe":
+        st.session_state['is_subscribed'] = True
+        if "action" in st.query_params:
+            del st.query_params["action"]
+        st.rerun()
+        
+    elif action == "like":
         st.session_state.like_count += 1
-        # action 파라미터를 URL에서 제거하여 새로고침 시 중복 카운트 방지
-        # st.query_params는 직접 수정 가능하며, 수정 시 앱이 다시 실행됨
-        del st.query_params["action"]
+        try:
+            st.balloons() # 좋아요 클릭 시 풍선 효과
+        except:
+            pass # 효과 실패해도 로직은 계속 진행
+        
+        if "action" in st.query_params:
+            del st.query_params["action"]
+    
+    elif action == "subscribe":
+        st.session_state['is_subscribed'] = not st.session_state['is_subscribed']
+        if st.session_state['is_subscribed']:
+            try:
+                st.snow() # 구독 클릭 시 눈내림 효과
+                st.toast("🎉 구독 감사합니다! 매주 행운의 번호를 받아보세요! 🎁")
+                st.markdown("<script>localStorage.setItem('lotto_subscribed', 'true');</script>", unsafe_allow_html=True)
+            except:
+                pass
+        else:
+            try:
+                st.toast("구독이 취소되었습니다. 다음에 또 만나요! 👋")
+                st.markdown("<script>localStorage.removeItem('lotto_subscribed');</script>", unsafe_allow_html=True)
+            except:
+                pass
+        
+        if "action" in st.query_params:
+            del st.query_params["action"]
+
 except Exception:
     # st.query_params가 지원되지 않는 환경 등 예외 처리
     pass
+
+# 브라우저 로컬 스토리지 확인 및 상태 복원 스크립트
+if not st.session_state['is_subscribed']:
+    st.markdown("""
+    <script>
+        if (localStorage.getItem('lotto_subscribed') === 'true') {
+            const params = new URLSearchParams(window.location.search);
+            if (!params.has('action')) {
+                window.location.href = "?action=restore_subscribe";
+            }
+        }
+    </script>
+    """, unsafe_allow_html=True)
 
 
 # ----- tab1~tab4 UI 함수 직접 정의 -----
@@ -506,7 +553,12 @@ def tab4_content():
       if len(numbers) + len(available) < 6:
         break
       
+      inner_attempt = 0
       while len(numbers) < 6:
+        inner_attempt += 1
+        if inner_attempt > 50: # 무한 루프 방지 안전장치
+            break
+            
         remaining_weights = [weights[n] for n in available]
         total_weight = sum(remaining_weights)
         if total_weight == 0:
@@ -529,6 +581,9 @@ def tab4_content():
             available.append(numbers[-1])
             numbers.pop()
             continue
+      
+      if len(numbers) < 6:
+        continue
       
       # 홀짝 비율 검증 (2~4개가 홀수)
       odd_count = sum(1 for n in numbers if n % 2 == 1)
@@ -579,6 +634,7 @@ def tab4_content():
     if st.button("🎲 AI 추천 번호 생성", key="ai_gen_btn", width="stretch"):
       st.session_state['ai_combinations'] = generate_combinations()
       st.session_state['ai_show_result'] = True
+      st.session_state['like_count'] += 1
   
   with col2:
     if st.button("🗑️ 초기화", key="ai_clear_btn", width="stretch"):
@@ -723,14 +779,18 @@ def tab5_content():
                    pass
                  
                  # 게임 번호 추출 (알파벳 + 숫자12자리)
-                 games = re.findall(r'a-z', q_str)
+                 # QR코드 포맷: 회차(4자리) + 구분자(알파벳) + 번호(12자리) + 구분자 + ...
+                 parts = re.split(r'[a-z]+', q_str)
+                 raw_games = parts[1:] if len(parts) > 1 else []
+                 games = [g for g in raw_games if len(g) >= 12]
+                 
                  for i, g in enumerate(games):
                    if i < 5:
                      nums = [int(g[j:j+2]) for j in range(0, 12, 2)]
                      st.session_state[f"check_g{i}"] = ", ".join(map(str, nums))
                  
                  # 나머지 칸 비우기
-                 for i in range(len(games), 5):
+                 for i in range(min(len(games), 5), 5):
                    st.session_state[f"check_g{i}"] = ""
                    
                  st.success(f"✅ QR코드 인식 성공! {len(games)}게임이 입력되었습니다.")
@@ -872,16 +932,28 @@ def render_header():
         current_params = st.query_params.to_dict()
         like_params = current_params.copy()
         like_params['action'] = 'like'
-        like_url = f"/?{urllib.parse.urlencode(like_params)}"
+        like_url = f"?{urllib.parse.urlencode(like_params)}"
     except Exception:
-        like_url = "/?action=like" # Fallback
+        like_url = "?action=like" # Fallback
+
+    # '구독' 링크 생성
+    try:
+        current_params = st.query_params.to_dict()
+        sub_params = current_params.copy()
+        sub_params['action'] = 'subscribe'
+        subscribe_url = f"?{urllib.parse.urlencode(sub_params)}"
+    except Exception:
+        subscribe_url = "?action=subscribe"
+
+    sub_label = "🔔 구독중" if st.session_state.get('is_subscribed') else "🔔 구독"
+    sub_style = "color: #ffd700; font-weight:bold;" if st.session_state.get('is_subscribed') else "color: white;"
 
     st.markdown(f"""
         <div class="top-header">
             <div class="header-left">
                 <span>🔗 공유</span>
                 <a href="{like_url}" target="_self">❤️ 좋아요 {st.session_state.like_count}</a>
-                <span>🔔 구독</span>
+                <a href="{subscribe_url}" target="_self" style="{sub_style}">{sub_label}</a>
             </div>
             <div class="header-center">
                 😘 로또킹과 더 높은 곳을 향하여 🚀
@@ -955,10 +1027,10 @@ def render_main_content():
         elif show_tab == 'tab5': tab5_content()
     else:
         st.markdown("""
-        <div style='text-align:center; color:#333; height:100%; display:flex; flex-direction:column; justify-content:center;'>
-            <h2>로또킹 AI 분석</h2>
-            <p>왼쪽 메뉴에서 원하시는 번호 생성 방식을 선택하세요.</p>
-            <p style='font-size:5rem;'>👈</p>
+        <div style='text-align:center; color:white; text-shadow: 2px 2px 4px rgba(0,0,0,0.8); height:100%; display:flex; flex-direction:column; justify-content:center;'>
+            <h2 style='color:white; margin-bottom: 10px;'>로또킹 AI 분석</h2>
+            <p style='color:white; font-size: 18px;'>왼쪽 메뉴에서 원하시는 번호 생성 방식을 선택하세요.</p>
+            <p class='pointing-finger'>👈</p>
         </div>
         """, unsafe_allow_html=True)
 
@@ -1066,6 +1138,17 @@ st.markdown(f"""
         }}
     }}
 
+    @keyframes point-left {{
+        0%, 100% {{ transform: translateX(0); }}
+        50% {{ transform: translateX(-20px); }}
+    }}
+
+    .pointing-finger {{
+        font-size: 5rem;
+        animation: point-left 1.5s infinite ease-in-out;
+        display: inline-block;
+    }}
+
     {st_app_style}
 
     .main .block-container {{
@@ -1086,6 +1169,8 @@ st.markdown(f"""
     }}
     .header-left {{
         font-size: 14px;
+        position: relative; /* 클릭 가능하도록 레이어 순서 조정 */
+        z-index: 10;
     }}
     .header-center {{
         position: absolute;
@@ -1100,6 +1185,8 @@ st.markdown(f"""
         font-size: 14px;
         font-weight: bold;
         color: white;
+        position: relative; /* 레이어 순서 조정 */
+        z-index: 10;
     }}
     .header-left span, .header-left a {{
         margin-right: 15px;
@@ -1108,8 +1195,9 @@ st.markdown(f"""
         transition: opacity 0.2s;
         color: white;
         text-decoration: none;
+        display: inline-block; /* transform 적용을 위해 추가 */
     }}
-    .header-left span:hover, .header-left a:hover {{ opacity: 1; }}
+    .header-left span:hover, .header-left a:hover {{ opacity: 1; transform: scale(1.1); }}
 
     /* --- 메인 카드 레이아웃 (컬럼 직접 스타일링) --- */
     /* 사이드바 컬럼 스타일링 */
