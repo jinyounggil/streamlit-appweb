@@ -19,7 +19,7 @@ import re
 from bs4 import BeautifulSoup
 
 # 페이지 설정 (가장 먼저 호출)
-st.set_page_config(layout="wide", page_title="로또킹 분석", initial_sidebar_state="expanded")
+st.set_page_config(layout="wide", page_title="로또킹 분석", initial_sidebar_state="auto")
 
 # Query-Parameter를 이용한 탭 관리
 if 'show_tab' not in st.session_state:
@@ -1219,6 +1219,10 @@ st.markdown(f"""
     .header-left span:hover, .header-left a:hover {{ opacity: 1; transform: scale(1.1); }}
     
     /* --- 사이드바 스타일 (네이티브) --- */
+    section[data-testid="stSidebar"] {{
+        min-width: 200px !important;
+        max-width: 280px !important;
+    }}
     section[data-testid="stSidebar"] > div {{
         {card_bg_style}
         border-right: 1px solid rgba(255, 255, 255, 0.3);
@@ -1246,10 +1250,10 @@ st.markdown(f"""
     /* 사이드바 내부 콘텐츠 스타일 */
     .logo {{
         text-align: center;
-        font-size: 28px;
+        font-size: 24px;
         font-weight: 900;
         color: white;
-        margin-bottom: 20px;
+        margin-bottom: 15px;
     }}
     .nav-cards-container {{
         display: flex;
@@ -1261,7 +1265,7 @@ st.markdown(f"""
         background: -webkit-linear-gradient(to right, #6a82fb, #fc5c7d);
         background: linear-gradient(to right, #6a82fb, #fc5c7d);
         border-radius: 10px;
-        padding: 15px;
+        padding: 10px;
         text-align: center;
         transition: all 0.3s ease;
     }}
@@ -1276,9 +1280,9 @@ st.markdown(f"""
         font-weight: 700;
     }}
     .nav-card .emoji {{
-        font-size: 24px;
+        font-size: 20px;
         display: block;
-        margin-bottom: 5px;
+        margin-bottom: 2px;
     }}
 
     /* Streamlit 위젯 스타일 오버라이드 */
