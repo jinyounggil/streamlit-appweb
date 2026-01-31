@@ -8,7 +8,9 @@ def update_lotto_data():
     print("🔄 로또 데이터 업데이트 시작...")
     url = "https://www.dhlottery.co.kr/common.do?method=allWinExel&gubun=byWin"
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': 'https://www.dhlottery.co.kr/gameResult.do?method=byWin',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8'
     }
     
     try:

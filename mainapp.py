@@ -17,6 +17,7 @@ except ImportError:
 import numpy as np
 import re
 from bs4 import BeautifulSoup
+import platform
 
 # 페이지 설정 (가장 먼저 호출)
 st.set_page_config(layout="wide", page_title="로또킹 분석", initial_sidebar_state="auto")
@@ -131,7 +132,20 @@ def load_lotto_data():
     데이터는 캐시되어 앱 성능을 향상시킵니다.
     """
     try:
-        df = pd.read_csv("past_results.csv", header=None, encoding='utf-8-sig')
+        # 인코딩 호환성을 위해 여러 인코딩 시도
+        encodings = ['utf-8-sig', 'cp949', 'euc-kr']
+        df = None
+        for enc in encodings:
+            try:
+                df = pd.read_csv("past_results.csv", header=None, encoding=enc)
+                break
+            except UnicodeDecodeError:
+                continue
+        
+        if df is None:
+            # 모든 인코딩 실패 시 기본값으로 시도 (에러 발생 유도)
+            df = pd.read_csv("past_results.csv", header=None, encoding='utf-8-sig')
+            
         df.columns = ["회차", "번호1", "번호2", "번호3", "번호4", "번호5", "번호6"]
         df["회차_int"] = df["회차"].str.replace("회차", "").astype(int)
         df = df.sort_values("회차_int", ascending=False)
@@ -159,10 +173,15 @@ def update_lotto_data_online():
     """
     url = "https://www.dhlottery.co.kr/common.do?method=allWinExel&gubun=byWin"
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Host': 'www.dhlottery.co.kr',
+        'Origin': 'https://www.dhlottery.co.kr',
+        'Connection': 'keep-alive',
+        'Referer': 'https://www.dhlottery.co.kr/gameResult.do?method=byWin',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8'
     }
     try:
-        response = requests.get(url, timeout=15, headers=headers)
+        response = requests.get(url, timeout=15, headers=headers, verify=False) # SSL 검증 우회
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
         return False, f"데이터 다운로드에 실패했습니다: {e}"
@@ -212,7 +231,12 @@ def update_lotto_data_online():
     latest_old_round = 0
     if os.path.exists(file_path):
         try:
-            df_old = pd.read_csv(file_path, header=None, encoding='utf-8-sig')
+            for enc in ['utf-8-sig', 'cp949', 'euc-kr']:
+                try:
+                    df_old = pd.read_csv(file_path, header=None, encoding=enc)
+                    break
+                except UnicodeDecodeError:
+                    continue
             df_old_int = df_old[0].str.replace("회차", "").astype(int)
             latest_old_round = df_old_int.max()
         except Exception:
@@ -225,7 +249,7 @@ def update_lotto_data_online():
     df_to_save = df_new.sort_values(by='회차', key=lambda x: x.str.replace('회차','').astype(int), ascending=True)
 
     try:
-        df_to_save.to_csv(file_path, index=False, header=False, encoding='utf-8')
+        df_to_save.to_csv(file_path, index=False, header=False, encoding='utf-8-sig')
         st.cache_data.clear()
         return True, f"업데이트 완료! {latest_new_round}회차까지 업데이트되었습니다."
     except Exception as e:
@@ -352,8 +376,32 @@ def tab2_content():
 
 def tab3_content():
   import matplotlib
-  matplotlib.rc('font', family='Malgun Gothic')  # 한글 폰트 설정
-  matplotlib.rcParams['axes.unicode_minus'] = False  # 마이너스 깨짐 방지
+  import matplotlib.font_manager as fm
+
+  # OS별 한글 폰트 설정
+  system_name = platform.system()
+  if system_name == 'Windows':
+      plt.rc('font', family='Malgun Gothic')
+  elif system_name == 'Darwin': # Mac
+      plt.rc('font', family='AppleGothic')
+  else: # Linux (Streamlit Cloud)
+      path = '/usr/share/fonts/truetype/nanum/NanumGothic.ttf'
+      if os.path.exists(path):
+          font_name = fm.FontProperties(fname=path).get_name()
+          plt.rc('font', family=font_name)
+      else:
+          plt.rc('font', family='DejaVu Sans') # 폰트 없을 시 기본값
+  
+  # 그래프 텍스트 및 라인 흰색 설정 (다크 모드 대응)
+  plt.rcParams.update({
+      "text.color": "white",
+      "axes.labelcolor": "white",
+      "xtick.color": "white",
+      "ytick.color": "white",
+      "axes.edgecolor": "white",
+      "axes.unicode_minus": False # 마이너스 깨짐 방지
+  })
+
   past_results = load_lotto_data()
   if past_results is None:
       st.error("`past_results.csv` 파일을 찾을 수 없거나 데이터가 손상되었습니다. 앱을 재시작하거나 데이터를 확인해주세요.")
@@ -383,6 +431,11 @@ def tab3_content():
     ax.set_title("번호 빈도 - 꺾은선그래프")
   ax.set_xlabel("번호")
   ax.set_ylabel("출현 빈도")
+  
+  # 그래프 배경 투명화
+  fig.patch.set_alpha(0)
+  ax.patch.set_alpha(0)
+  
   st.pyplot(fig)
 
   # hot/mid/cold num 표시
@@ -393,17 +446,37 @@ def tab3_content():
   mid_nums = freq_sorted.iloc[mid_start:mid_start+6].index.tolist() if len(freq_sorted) >= 12 else []
   def balls(nums):
     return generate_lotto_balls_html(nums, size=40, font_size=18, margin="4px")
-  st.markdown(f"<b>Hot Num</b>: {balls(sorted(hot_nums))}", unsafe_allow_html=True)
+  
+  st.markdown(f"<div style='color:white; margin-bottom:5px;'><b>Hot Num</b> (최다 출현): {balls(sorted(hot_nums))}</div>", unsafe_allow_html=True)
   if mid_nums:
-    st.markdown(f"<b>Mid Num</b>: {balls(sorted(mid_nums))}", unsafe_allow_html=True)
-  st.markdown(f"<b>Cold Num</b>: {balls(sorted(cold_nums))}", unsafe_allow_html=True)
+    st.markdown(f"<div style='color:white; margin-bottom:5px;'><b>Mid Num</b> (중간 출현): {balls(sorted(mid_nums))}</div>", unsafe_allow_html=True)
+  st.markdown(f"<div style='color:white; margin-bottom:5px;'><b>Cold Num</b> (최소 출현): {balls(sorted(cold_nums))}</div>", unsafe_allow_html=True)
 
   # 미출현 번호 표시 (선택 범위 내 한 번도 안 나온 번호)
   all_numbers = set(range(1, 46))
   appeared_numbers = set(numbers.unique())
   not_appeared = sorted(list(all_numbers - appeared_numbers))
   if not_appeared:
-    st.markdown(f"<b>미출현 번호</b>: {balls(not_appeared)}", unsafe_allow_html=True)
+    st.markdown(f"<div style='color:white; margin-top:10px;'><b>미출현 번호</b>: {balls(not_appeared)}</div>", unsafe_allow_html=True)
+
+  # 최다 빈도 6수 추천 기능
+  st.markdown("---")
+  if st.button("🏆 최다 빈도 6수 조합 추천", key="btn_stat_rec"):
+      if len(hot_nums) >= 6:
+          rec_nums = sorted(hot_nums[:6])
+          st.markdown(f"""
+          <div style='background-color:rgba(255,255,255,0.1); border-radius:15px; padding:20px; text-align:center; margin-top:15px; border:1px solid rgba(255,255,255,0.2);'>
+              <h3 style='color:#ffd700; margin-bottom:15px;'>👑 통계 기반 강력 추천 (Top 6)</h3>
+              <div style='display:flex; justify-content:center; gap:10px; flex-wrap:wrap;'>
+                  {generate_lotto_balls_html(rec_nums, size=60, font_size=24, use_flex=True)}
+              </div>
+              <p style='color:#ddd; margin-top:15px; font-size:14px;'>
+                  선택하신 기간 동안 가장 많이 당첨된 번호 6개입니다.
+              </p>
+          </div>
+          """, unsafe_allow_html=True)
+      else:
+          st.warning("데이터가 부족하여 추천할 수 없습니다.")
 
 def tab4_content():
   # session_state 초기화
@@ -682,8 +755,16 @@ def tab4_content():
           draw = ImageDraw.Draw(image)
 
           try:
-              title_font = ImageFont.truetype("malgun.ttf", 20)
-              ball_font = ImageFont.truetype("malgun.ttf", 26)
+              # OS별 폰트 경로 설정
+              if platform.system() == 'Windows':
+                  font_path = "malgun.ttf"
+              elif platform.system() == 'Darwin':
+                  font_path = "AppleGothic"
+              else:
+                  font_path = "/usr/share/fonts/truetype/nanum/NanumGothic.ttf"
+              
+              title_font = ImageFont.truetype(font_path, 20)
+              ball_font = ImageFont.truetype(font_path, 26)
           except IOError:
               title_font = ImageFont.load_default()
               ball_font = ImageFont.load_default()
@@ -807,6 +888,7 @@ def tab5_content():
                        st.session_state[f"check_g{i}"] = ""
                        
                      st.success(f"✅ QR코드 인식 성공! {len(games)}게임이 입력되었습니다.")
+                     st.balloons()
                 elif data:
                    st.warning("로또 복권 QR코드가 아닙니다.")
           except Exception as e:
@@ -984,55 +1066,41 @@ def render_sidebar():
         <div class="nav-cards-container">
             <div class="nav-card">
                 <a href="/?tab=tab1" target="_self">
-                    <span class="emoji">🎵</span>
+                    <span class="emoji">🐉</span>
                     띠별 추천번호
                 </a>
             </div>
             <div class="nav-card">
                 <a href="/?tab=tab2" target="_self">
-                    <span class="emoji">🧭</span>
+                    <span class="emoji">☯️</span>
                     주역 추천번호
                 </a>
             </div>
             <div class="nav-card">
                 <a href="/?tab=tab3" target="_self">
-                    <span class="emoji">📊</span>
+                    <span class="emoji">📈</span>
                     통계 추천
                 </a>
             </div>
             <div class="nav-card">
                 <a href="/?tab=tab4" target="_self">
-                    <span class="emoji">🧠</span>
+                    <span class="emoji"></span>
                     AI 통합 추천
                 </a>
             </div>
             <div class="nav-card">
                 <a href="/?tab=tab5" target="_self">
-                    <span class="emoji">🏆</span>
+                    <span class="emoji">🔎</span>
                     당첨 확인
                 </a>
             </div>
         </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("<div style='flex-grow: 1;'></div>", unsafe_allow_html=True)
-
-    if st.button("🔄 온라인 데이터 업데이트", use_container_width=True, help="동행복권 사이트에서 최신 당첨 데이터를 가져옵니다."):
-        with st.spinner("최신 데이터를 확인하고 있습니다..."):
-            success, message = update_lotto_data_online()
-            if success:
-                st.success(message)
-                if "업데이트 완료" in message:
-                    st.rerun()
-            else:
-                st.error(message)
 
 
 def render_main_content():
     """ Renders the content for the right main area. """
-    # 메인 콘텐츠 스타일 적용을 위한 래퍼 시작
-    st.markdown('<div class="main-card">', unsafe_allow_html=True)
-    
     show_tab = st.session_state.get('show_tab')
     if show_tab:
         st.markdown(f'<a href="/" target="_self" style="text-decoration:none;"><button style="margin-bottom:20px;">🏠 메인 화면으로</button></a>', unsafe_allow_html=True)
@@ -1043,15 +1111,34 @@ def render_main_content():
         elif show_tab == 'tab5': tab5_content()
     else:
         st.markdown("""
-        <div style='text-align:center; color:white; text-shadow: 2px 2px 4px rgba(0,0,0,0.8); height:100%; display:flex; flex-direction:column; justify-content:center;'>
-            <h2 style='color:white; margin-bottom: 10px;'>로또킹 AI 분석</h2>
+        <style>
+            @keyframes typing {
+              from { width: 0 }
+              to { width: 100% }
+            }
+            @keyframes blink-caret {
+              from, to { border-color: transparent }
+              50% { border-color: #ffd700; }
+            }
+            .typing-text {
+                display: inline-block;
+                overflow: hidden;
+                border-right: .1em solid #ffd700;
+                white-space: nowrap;
+                margin: 0 auto;
+                letter-spacing: 0.1em;
+                animation: 
+                    typing 2s steps(20, end),
+                    blink-caret .75s step-end 3 forwards;
+                max-width: fit-content;
+            }
+        </style>
+        <div style='text-align:center; color:white; text-shadow: 2px 2px 4px rgba(0,0,0,0.8); min-height:60vh; display:flex; flex-direction:column; justify-content:center; align-items:center;'>
+            <h2 class="typing-text" style='color:white; margin-bottom: 10px;'>로또킹 AI 분석</h2>
             <p style='color:white; font-size: 18px;'>왼쪽 메뉴에서 원하시는 번호 생성 방식을 선택하세요.</p>
             <p class='pointing-finger'>👈</p>
         </div>
         """, unsafe_allow_html=True)
-    
-    # 래퍼 종료
-    st.markdown('</div>', unsafe_allow_html=True)
 
 def get_image_as_base64(path):
     if not os.path.exists(path):
@@ -1085,22 +1172,22 @@ def render_footer():
             "image_html": f'<img src="data:image/png;base64,{qr_image_b64}" width="60" alt="QR Code" style="margin-top:5px;">'
         })
 
-    # Streamlit 컬럼을 사용하여 카드 렌더링
-    cols = st.columns(len(cards_data))
-    for i, col in enumerate(cols):
-        with col:
-            card = cards_data[i]
-            card_html = f"<div class='bottom-card'><h3>{card['title']}</h3>"
-            if 'text' in card:
-                card_html += f"<p>{card['text']}</p>"
-            if 'image_html' in card:
-                card_html += card['image_html']
-            card_html += "</div>"
-            st.markdown(card_html, unsafe_allow_html=True)
+    # CSS Grid를 사용한 반응형 카드 레이아웃 (모바일 2열, PC 자동)
+    # HTML 구조를 명확하게 다시 작성하여 태그 닫힘 오류 방지
+    cards_html = ""
+    for card in cards_data:
+        cards_html += f"<div class='bottom-card'><h3>{card['title']}</h3>"
+        if 'text' in card:
+            cards_html += f"<p>{card['text']}</p>"
+        if 'image_html' in card:
+            cards_html += card['image_html']
+        cards_html += "</div>"
+    
+    st.markdown(f'<div class="footer-grid">{cards_html}</div>', unsafe_allow_html=True)
 
     # 공통 하단 경고 메시지
     st.markdown("""
-    <div style='margin-top:1rem; padding:10px; text-align:center; color:white; font-size:12px; background: rgba(0,0,0,0.6); border-radius:10px;'>
+    <div style='margin-top:20px; padding:10px; text-align:center; color:#ccc; font-size:12px; background: rgba(0,0,0,0.5); border-radius:10px;'>
       ⚠️ 로또 번호 예측은 통계적 참고 자료이며 당첨을 보장하지 않습니다. 모든 투자의 책임은 본인에게 있습니다.
     </div>
     """, unsafe_allow_html=True)
@@ -1141,7 +1228,7 @@ if bg_image_b64:
     """
     card_bg_style = """
         background: rgba(0, 0, 0, 0.6);
-        backdrop-filter: blur(8px);
+        backdrop-filter: blur(5px);
         -webkit-backdrop-filter: blur(8px);
     """
 
@@ -1170,9 +1257,6 @@ st.markdown(f"""
 
     {st_app_style}
 
-    .main .block-container {{
-        padding: 0.5rem 1rem !important;
-    }}
     /* --- 상단 헤더 --- */
     .top-header {{
         position: relative;
@@ -1220,13 +1304,21 @@ st.markdown(f"""
     
     /* --- 사이드바 스타일 (네이티브) --- */
     section[data-testid="stSidebar"] {{
+        width: 200px !important;
         min-width: 200px !important;
-        max-width: 280px !important;
+        max-width: 200px !important;
     }}
     section[data-testid="stSidebar"] > div {{
-        {card_bg_style}
-        border-right: 1px solid rgba(255, 255, 255, 0.3);
-        box-shadow: 4px 0 32px 0 rgba(0, 0, 0, 0.3);
+        background-color: rgba(20, 20, 20, 0.85); /* 더 진한 배경으로 가독성 확보 */
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 15px !important;
+        margin-top: 70px !important; /* 상단 여백 확보 */
+        margin-bottom: 20px !important;
+        margin-left: 10px !important;
+        margin-right: 10px !important;
+        height: calc(100vh - 90px) !important; /* 높이 조정 */
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+        padding-top: 10px;
     }}
     /* 사이드바 내부 텍스트 색상 강제 지정 */
     section[data-testid="stSidebar"] .logo, 
@@ -1237,14 +1329,16 @@ st.markdown(f"""
     }}
 
     /* --- 메인 콘텐츠 카드 스타일 --- */
-    .main-card {{
+    /* 메인 영역 전체에 카드 스타일 적용 */
+    .main .block-container {{
         {card_bg_style}
         border-radius: 15px;
-        padding: 25px; /* 최소 높이 제거 */
+        padding: 30px !important;
         border: 1px solid rgba(255, 255, 255, 0.3);
         box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
         color: white;
-        margin-bottom: 20px;
+        max-width: 1200px; /* 폭 넓힘 */
+        min-height: 100vh;
     }}
 
     /* 사이드바 내부 콘텐츠 스타일 */
@@ -1256,31 +1350,40 @@ st.markdown(f"""
         margin-bottom: 15px;
     }}
     .nav-cards-container {{
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
     }}
     .nav-card {{
         background: #fc5c7d;
         background: -webkit-linear-gradient(to right, #6a82fb, #fc5c7d);
         background: linear-gradient(to right, #6a82fb, #fc5c7d);
-        border-radius: 10px;
-        padding: 10px;
+        border-radius: 8px;
+        padding: 6px 2px;
         text-align: center;
         transition: all 0.3s ease;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+    }}
+    .nav-card:last-child {{
+        grid-column: span 2;
     }}
     .nav-card:hover {{
-        transform: scale(1.05);
-        box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        transform: scale(1.05) translateY(-3px);
+        box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+        filter: brightness(1.15);
     }}
     .nav-card a {{
         text-decoration: none;
         color: white;
-        font-size: 16px;
-        font-weight: 700;
+        font-size: 12px;
+        font-weight: 600;
+        line-height: 1.2;
     }}
     .nav-card .emoji {{
-        font-size: 20px;
+        font-size: 18px;
         display: block;
         margin-bottom: 2px;
     }}
@@ -1294,24 +1397,55 @@ st.markdown(f"""
     }}
 
     /* --- 하단 기능 카드 --- */
+    .footer-grid {{
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 10px;
+        margin-top: 100px;
+        perspective: 1000px;
+    }}
     .bottom-card {{
-        background: rgba(0, 0, 0, 0.7);
+        background: rgba(0, 0, 0, 0.6);
         color: white;
-        padding: 10px;
-        border-radius: 15px;
+        padding: 10px 5px;
+        border-radius: 12px;
         text-align: center;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-        height: 100%; /* 컬럼 내 카드들이 동일한 높이를 갖도록 설정 */
+        border: 1px solid rgba(255,255,255,0.1);
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        height: 100%;
+        transition: all 0.5s cubic-bezier(0.23, 1, 0.32, 1);
+        transform-style: preserve-3d;
+    }}
+    .bottom-card:hover {{
+        transform: translateY(-10px) rotateX(10deg);
+        background: linear-gradient(135deg, rgba(106, 130, 251, 0.9), rgba(252, 92, 125, 0.9));
+        border: 1px solid rgba(255, 255, 255, 0.5);
+        box-shadow: 0 15px 30px rgba(0,0,0,0.5);
     }}
     .bottom-card h3 {{
         color: #ffd700;
         font-size: 14px;
-        margin: 0 0 5px 0;
+        margin: 0 0 8px 0;
+        font-weight: bold;
     }}
     .bottom-card p {{
         font-size: 12px;
-        color: white;
+        color: #ddd;
         margin: 0;
+        line-height: 1.4;
+    }}
+    
+    /* 모바일 최적화 */
+    @media (max-width: 600px) {{
+        .footer-grid {{
+            grid-template-columns: 1fr 1fr; /* 모바일에서 2열 배치 */
+        }}
+        .bottom-card {{
+            padding: 10px 5px;
+        }}
     }}
 </style>
 """, unsafe_allow_html=True)

@@ -4,5 +4,7 @@ matplotlib
 Pillow
 requests
 beautifulsoup4
-lxml
 opencv-python-headless
+lxml
+html5lib
+openpyxl
