@@ -59,6 +59,12 @@ streamlit run mainapp.py
 - pandas
 - matplotlib
 - Pillow
+- requests
+- openpyxl
+- lxml
+- html5lib
+- beautifulsoup4
+- opencv-python (QR코드 스캔 기능 사용 시)
 
 ## 📂 파일 구성
 - `mainapp.py` - 메인 애플리케이션

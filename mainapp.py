@@ -1,40 +1,50 @@
 import streamlit as st
-import pandas as pd
-
-# 파일 업로드 UI
-st.title('Pd flame data 업로드 및 분석')
-uploaded_file = st.file_uploader('Pd flame data 엑셀 파일을 업로드하세요', type=['xls', 'xlsx', 'xlsm'])
-
-if uploaded_file is not None:
-    # 업로드된 파일을 pandas로 읽기
-    try:
-        df = pd.read_excel(uploaded_file)
-        st.success('파일 업로드 및 읽기 성공!')
-        st.dataframe(df.head())
-    except Exception as e:
-        st.error(f'파일을 읽는 중 오류 발생: {e}')
-else:
-    st.info('엑셀 파일을 업로드하면 데이터가 여기에 표시됩니다.')
-import streamlit as st
 import random
 import pandas as pd
 import matplotlib.pyplot as plt
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 import datetime
 import os
 import base64
-from io import BytesIO
+from io import BytesIO, StringIO
+import requests
+import urllib.parse
+try:
+    import cv2
+    cv2_available = True
+except ImportError:
+    cv2_available = False
+import numpy as np
+import re
+from bs4 import BeautifulSoup
 
 # 페이지 설정 (가장 먼저 호출)
 st.set_page_config(layout="wide", page_title="로또킹 분석")
 
-# 세션 상태 초기화
+# Query-Parameter를 이용한 탭 관리
 if 'show_tab' not in st.session_state:
-    st.session_state['show_tab'] = None
+    try:
+        st.session_state['show_tab'] = st.query_params.get('tab')
+    except:
+        st.session_state['show_tab'] = None
+
+# 세션 상태 초기화
 if 'subscribe_count' not in st.session_state:
     st.session_state['subscribe_count'] = 0
 if 'like_count' not in st.session_state:
     st.session_state['like_count'] = 0
+
+# '좋아요' 클릭 처리
+try:
+    if st.query_params.get("action") == "like":
+        st.session_state.like_count += 1
+        # action 파라미터를 URL에서 제거하여 새로고침 시 중복 카운트 방지
+        # st.query_params는 직접 수정 가능하며, 수정 시 앱이 다시 실행됨
+        del st.query_params["action"]
+except Exception:
+    # st.query_params가 지원되지 않는 환경 등 예외 처리
+    pass
+
 
 # ----- tab1~tab4 UI 함수 직접 정의 -----
 def get_color(n):
@@ -49,6 +59,130 @@ def get_color(n):
     return "black"  # 검정
   else:
     return "green"  # 초록
+
+def generate_lotto_balls_html(numbers, size, font_size, margin="2px", use_flex=False, extra_css="", opacity_map=None):
+    """로또 공 목록에 대한 HTML을 생성합니다."""
+    html_output = []
+    for n in numbers:
+        color = get_color(n)
+        text_color = "black" if color == "gold" else "white"
+        opacity = opacity_map.get(n, 1.0) if opacity_map else 1.0
+
+        if use_flex:
+            style = f"background-color:{color}; color:{text_color}; border-radius:50%; width:{size}px; height:{size}px; display:flex; align-items:center; justify-content:center; font-size:{font_size}px; opacity:{opacity}; {extra_css}"
+            html_output.append(f"<div style='{style}'>{n}</div>")
+        else:
+            style = f"display:inline-block; background:{color}; color:{text_color}; border-radius:50%; width:{size}px; height:{size}px; text-align:center; line-height:{size}px; margin:{margin}; font-size:{font_size}px; opacity:{opacity}; {extra_css}"
+            html_output.append(f"<span style='{style}'>{n}</span>")
+    return "".join(html_output)
+
+
+@st.cache_data
+def load_lotto_data():
+    """
+    과거 로또 당첨 데이터를 CSV 파일에서 로드하고 전처리합니다. 오류 발생 시 None을 반환합니다.
+    데이터는 캐시되어 앱 성능을 향상시킵니다.
+    """
+    try:
+        df = pd.read_csv("past_results.csv", header=None, encoding='utf-8-sig')
+        df.columns = ["회차", "번호1", "번호2", "번호3", "번호4", "번호5", "번호6"]
+        df["회차_int"] = df["회차"].str.replace("회차", "").astype(int)
+        df = df.sort_values("회차_int", ascending=False)
+        return df
+    except (FileNotFoundError, Exception) as e:
+        # st.error() 호출을 제거하여 앱 시작 시 레이아웃이 깨지는 것을 방지합니다.
+        # 오류 처리는 이 함수를 호출하는 각 UI 섹션에서 담당합니다.
+        print(f"데이터 로드 중 오류 발생: {e}") # 서버 로그용
+        return None
+
+def display_combinations_result(show_result_key, combinations_key):
+    """Streamlit 세션 상태를 기반으로 로또 조합 목록을 표시합니다."""
+    result_placeholder = st.empty()
+    with result_placeholder.container():
+        if st.session_state.get(show_result_key) and st.session_state.get(combinations_key):
+            html_output = "<div style='display:flex;flex-direction:column;align-items:center; margin-top:20px;'>"
+            for comb in st.session_state[combinations_key]:
+                html_output += f"<div style='margin:10px 0;'>{generate_lotto_balls_html(comb, size=60, font_size=22)}</div>"
+            html_output += "</div>"
+            st.markdown(html_output, unsafe_allow_html=True)
+
+def update_lotto_data_online():
+    """
+    온라인에서 최신 로또 당첨 데이터를 다운로드하여 past_results.csv 파일을 업데이트합니다.
+    """
+    url = "https://www.dhlottery.co.kr/common.do?method=allWinExel&gubun=byWin"
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
+    try:
+        response = requests.get(url, timeout=15, headers=headers)
+        response.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        return False, f"데이터 다운로드에 실패했습니다: {e}"
+
+    try:
+        # header=1로 하면 '회차별 당첨번호' 행을 헤더로 사용
+        # BeautifulSoup를 사용하여 불안정한 HTML에서도 테이블을 안정적으로 찾습니다.
+        # 1. 'cp949'로 디코딩하되, 오류가 나는 문자는 깨짐 문자로 대체(replace)합니다.
+        html_text = response.content.decode('cp949', errors='replace')
+        
+        # 2. BeautifulSoup으로 HTML을 파싱합니다.
+        soup = BeautifulSoup(html_text, 'html.parser')
+        
+        # 3. 파싱된 문서에서 'table' 태그를 찾습니다.
+        table = soup.find('table')
+        if not table:
+            raise ValueError("HTML에서 테이블 구조를 찾지 못했습니다. (서버 응답 변경 가능성)")
+
+        # 4. 찾은 테이블 부분만 pandas로 읽어들여 안정성을 높입니다.
+        dfs = pd.read_html(StringIO(str(table)), header=1)
+        if not dfs:
+            raise ValueError("테이블 데이터를 데이터프레임으로 변환하지 못했습니다.")
+        df_new = dfs[0]
+        
+        # '당첨번호'로 시작하는 열들을 찾음
+        win_num_cols = [col for col in df_new.columns if str(col).startswith('당첨번호')]
+        if len(win_num_cols) != 6:
+             raise ValueError("당첨번호 열(6개)을 정확히 찾을 수 없습니다.")
+        
+        # 필요한 열만 선택하고 이름 변경
+        required_cols = ['회차'] + win_num_cols
+        df_new = df_new[required_cols].copy()
+        df_new.columns = ["회차", "번호1", "번호2", "번호3", "번호4", "번호5", "번호6"]
+        
+        # 데이터 클리닝
+        df_new = df_new.dropna(subset=['회차'])
+        df_new = df_new[pd.to_numeric(df_new['회차'], errors='coerce').notna()]
+        df_new['회차'] = df_new['회차'].astype(int)
+        
+        latest_new_round = df_new['회차'].max()
+
+    except Exception as e:
+        return False, f"다운로드한 파일 처리 중 오류가 발생했습니다: {e}"
+
+    # 기존 데이터와 비교
+    file_path = "past_results.csv"
+    latest_old_round = 0
+    if os.path.exists(file_path):
+        try:
+            df_old = pd.read_csv(file_path, header=None, encoding='utf-8-sig')
+            df_old_int = df_old[0].str.replace("회차", "").astype(int)
+            latest_old_round = df_old_int.max()
+        except Exception:
+            latest_old_round = 0
+
+    if latest_new_round <= latest_old_round:
+        return True, f"이미 최신 데이터입니다. (현재 {latest_old_round}회차)"
+
+    df_new['회차'] = df_new['회차'].astype(str) + "회차"
+    df_to_save = df_new.sort_values(by='회차', key=lambda x: x.str.replace('회차','').astype(int), ascending=True)
+
+    try:
+        df_to_save.to_csv(file_path, index=False, header=False, encoding='utf-8')
+        st.cache_data.clear()
+        return True, f"업데이트 완료! {latest_new_round}회차까지 업데이트되었습니다."
+    except Exception as e:
+        return False, f"파일 저장 중 오류가 발생했습니다: {e}"
 
 
 def tab1_content():
@@ -99,22 +233,7 @@ def tab1_content():
     st.session_state['tab1_show_result'] = True
   
   # 결과 표시 영역 (placeholder 사용)
-  result_placeholder = st.empty()
-  
-  with result_placeholder.container():
-    if st.session_state['tab1_show_result'] and len(st.session_state['tab1_combinations']) > 0:
-      # 전체 HTML을 한 번에 생성
-      html_output = "<div style='display:flex;flex-direction:column;align-items:center; margin-top:20px;'>"
-      
-      for comb in st.session_state['tab1_combinations']:
-        html_output += "<div style='margin:10px 0;'>"
-        for n in comb:
-          color = get_color(n)
-          html_output += f"<span style='display:inline-block; background:{color}; color:white; border-radius:50%; width:60px; height:60px; text-align:center; line-height:60px; margin:2px; font-size:22px;'>{n}</span>"
-        html_output += "</div>"
-      
-      html_output += "</div>"
-      st.markdown(html_output, unsafe_allow_html=True)
+  display_combinations_result('tab1_show_result', 'tab1_combinations')
 
 
 def tab2_content():
@@ -181,32 +300,18 @@ def tab2_content():
       st.session_state['tab2_show_result'] = True
   
   # 결과 표시 영역 (placeholder 사용)
-  result_placeholder = st.empty()
-  
-  with result_placeholder.container():
-    if st.session_state['tab2_show_result'] and len(st.session_state['tab2_combinations']) > 0:
-      # 전체 HTML을 한 번에 생성
-      html_output = "<div style='display:flex;flex-direction:column;align-items:center; margin-top:20px;'>"
-      
-      for comb in st.session_state['tab2_combinations']:
-        html_output += "<div style='margin:10px 0;'>"
-        for n in comb:
-          color = get_color(n)
-          html_output += f"<span style='display:inline-block; background:{color}; color:white; border-radius:50%; width:60px; height:60px; text-align:center; line-height:60px; margin:2px; font-size:22px;'>{n}</span>"
-        html_output += "</div>"
-      
-      html_output += "</div>"
-      st.markdown(html_output, unsafe_allow_html=True)
+  display_combinations_result('tab2_show_result', 'tab2_combinations')
 
 
 def tab3_content():
   import matplotlib
   matplotlib.rc('font', family='Malgun Gothic')  # 한글 폰트 설정
   matplotlib.rcParams['axes.unicode_minus'] = False  # 마이너스 깨짐 방지
-  past_results = pd.read_csv("past_results.csv", header=None)
-  past_results.columns = ["회차", "번호1", "번호2", "번호3", "번호4", "번호5", "번호6"]
-  past_results["회차"] = past_results["회차"].str.replace("회차", "").astype(int)
-  latest_round = past_results["회차"].max()
+  past_results = load_lotto_data()
+  if past_results is None:
+      st.error("`past_results.csv` 파일을 찾을 수 없거나 데이터가 손상되었습니다. 앱을 재시작하거나 데이터를 확인해주세요.")
+      return
+  latest_round = past_results["회차_int"].max()
   st.markdown("<h2 style='color:orange;'>📊 통계 추천</h2>", unsafe_allow_html=True)
   # 회차 범위 옵션 및 실제 범위 계산
   ranges = [300, 150, 75, 45, 30, 15, 5]
@@ -214,7 +319,7 @@ def tab3_content():
   mode = st.selectbox("회차 범위 선택", options)
   n = int(mode.replace("최근 ", "").replace("회", ""))
   min_round = max(latest_round - n + 1, 1)
-  data = past_results[(past_results["회차"] >= min_round) & (past_results["회차"] <= latest_round)]
+  data = past_results[(past_results["회차_int"] >= min_round) & (past_results["회차_int"] <= latest_round)]
   st.write(f"선택된 회차 범위: {min_round} ~ {latest_round}")
   numbers = pd.concat([
     data["번호1"], data["번호2"], data["번호3"],
@@ -240,10 +345,7 @@ def tab3_content():
   mid_start = len(freq_sorted)//2 - 3
   mid_nums = freq_sorted.iloc[mid_start:mid_start+6].index.tolist() if len(freq_sorted) >= 12 else []
   def balls(nums):
-    return "".join([
-      f"<span style='display:inline-block; background:{get_color(n)}; color:white; border-radius:50%; width:40px; height:40px; text-align:center; line-height:40px; margin:4px; font-size:18px;'>{n}</span>"
-      for n in nums
-    ])
+    return generate_lotto_balls_html(nums, size=40, font_size=18, margin="4px")
   st.markdown(f"<b>Hot Num</b>: {balls(sorted(hot_nums))}", unsafe_allow_html=True)
   if mid_nums:
     st.markdown(f"<b>Mid Num</b>: {balls(sorted(mid_nums))}", unsafe_allow_html=True)
@@ -264,15 +366,16 @@ def tab4_content():
         st.session_state['ai_show_result'] = False
   
   st.markdown("<h2 style='color:lime;'>🧠 AI 통합 추천</h2>", unsafe_allow_html=True)
-  
+
+  past_results = load_lotto_data()
+  if past_results is None:
+      st.error("`past_results.csv` 파일을 찾을 수 없거나 데이터가 손상되었습니다. 앱을 재시작하거나 데이터를 확인해주세요.")
+      return
+    
   # 과거 데이터 로드 및 고급 분석
   try:
-    past_results = pd.read_csv("past_results.csv", header=None)
-    past_results.columns = ["회차", "번호1", "번호2", "번호3", "번호4", "번호5", "번호6"]
-    past_results["회차"] = past_results["회차"].str.replace("회차", "").astype(int)
-    
     # 최근 300회 데이터 분석
-    recent_data = past_results.tail(300)
+    recent_data = past_results.head(300)
     all_numbers = pd.concat([
       recent_data["번호1"], recent_data["번호2"], recent_data["번호3"],
       recent_data["번호4"], recent_data["번호5"], recent_data["번호6"]
@@ -283,7 +386,7 @@ def tab4_content():
     freq_sorted = freq.sort_values(ascending=False)
     
     # 2. 최근 추세 분석 (최근 50회 vs 전체)
-    recent_50 = past_results.tail(50)
+    recent_50 = past_results.head(50)
     recent_numbers = pd.concat([
       recent_50["번호1"], recent_50["번호2"], recent_50["번호3"],
       recent_50["번호4"], recent_50["번호5"], recent_50["번호6"]
@@ -295,99 +398,128 @@ def tab4_content():
     for num in range(1, 46):
       last_appearance[num] = 999
     
-    for idx, row in recent_data.iloc[::-1].iterrows():
+    # recent_data는 최신순으로 정렬되어 있음
+    for i, (idx, row) in enumerate(recent_data.iterrows()):
+      round_gap = i + 1
       for col in ["번호1", "번호2", "번호3", "번호4", "번호5", "번호6"]:
         num = row[col]
         if last_appearance[num] == 999:
-          last_appearance[num] = len(recent_data) - recent_data.index.get_loc(idx)
-    
-    # 4. 구간별 출현 비율 분석 (1-10, 11-20, 21-30, 31-40, 41-45)
-    zone_freq = {1:0, 2:0, 3:0, 4:0, 5:0}
-    for num in all_numbers:
-      if num <= 10:
-        zone_freq[1] += 1
-      elif num <= 20:
-        zone_freq[2] += 1
-      elif num <= 30:
-        zone_freq[3] += 1
-      elif num <= 40:
-        zone_freq[4] += 1
-      else:
-        zone_freq[5] += 1
-    
-    # 5. 통합 가중치 계산
-    weights = {}
-    for i in range(1, 46):
-      # 기본 빈도 가중치
-      freq_weight = freq.get(i, 0) / freq.max() if freq.max() > 0 else 0.5
-      
-      # 최근 추세 가중치 (최근 50회에서 많이 나온 번호 우대)
-      recent_weight = recent_freq.get(i, 0) / recent_freq.max() if len(recent_freq) > 0 and recent_freq.max() > 0 else 0.5
-      
-      # 미출현 기간 가중치 (너무 오래 안 나온 번호 우대)
-      gap = last_appearance.get(i, 0)
-      gap_weight = min(gap / 100, 1.0) if gap > 30 else 0.3
-      
-      # 통합 가중치 (빈도 50%, 최근 추세 30%, 미출현 20%)
-      weights[i] = (freq_weight * 0.5 + recent_weight * 0.3 + gap_weight * 0.2) * 2.0
-      weights[i] = max(0.3, min(weights[i], 2.5))  # 0.3~2.5 범위로 제한
+          last_appearance[num] = round_gap
     
     # 당첨 패턴 분석 (홀짝 비율, 구간 분포)
     odd_ratios = []
-    zone_distributions = []
     for idx, row in recent_data.iterrows():
       nums = [row["번호1"], row["번호2"], row["번호3"], row["번호4"], row["번호5"], row["번호6"]]
       odd_count = sum(1 for n in nums if n % 2 == 1)
       odd_ratios.append(odd_count)
-      
-      zones = [0,0,0,0,0]
-      for n in nums:
-        if n <= 10: zones[0] += 1
-        elif n <= 20: zones[1] += 1
-        elif n <= 30: zones[2] += 1
-        elif n <= 40: zones[3] += 1
-        else: zones[4] += 1
-      zone_distributions.append(zones)
     
     avg_odd = sum(odd_ratios) / len(odd_ratios)
-    avg_zone = [sum(z[i] for z in zone_distributions) / len(zone_distributions) for i in range(5)]
     
     has_data = True
-  except:
+  except Exception:
     # 데이터 없을 경우 균등 가중치
-    weights = {i: 1.0 for i in range(1, 46)}
-    avg_odd = 3
-    avg_zone = [1.2, 1.2, 1.2, 1.2, 1.2]
     has_data = False
+    freq, recent_freq, last_appearance = pd.Series(), pd.Series(), {}
+    avg_odd = 3
+
+  # AI 가중치 조절 UI
+  with st.expander("⚖️ AI 가중치 조절", expanded=True):
+      col1, col2, col3 = st.columns(3)
+      with col1:
+          weight_freq_user = st.slider("빈도 분석 (%)", 0, 100, 50, key="w_freq")
+      with col2:
+          weight_trend_user = st.slider("최근 추세 (%)", 0, 100, 30, key="w_trend")
+      with col3:
+          weight_gap_user = st.slider("미출현 패턴 (%)", 0, 100, 20, key="w_gap")
+
+      total_weight_val = weight_freq_user + weight_trend_user + weight_gap_user
+      if total_weight_val == 0:
+          st.warning("가중치 총합이 0이 될 수 없습니다. 기본값(50:30:20)을 사용합니다.")
+          w_f, w_t, w_g = 0.5, 0.3, 0.2
+      else:
+          w_f = weight_freq_user / total_weight_val
+          w_t = weight_trend_user / total_weight_val
+          w_g = weight_gap_user / total_weight_val
+      
+      st.info(f"적용 가중치: 빈도 {w_f:.0%} | 최근 추세 {w_t:.0%} | 미출현 {w_g:.0%}")
+
+  # 통합 가중치 계산
+  weights = {}
+  if not has_data:
+      weights = {i: 1.0 for i in range(1, 46)}
+  else:
+      freq_max = freq.max() if not freq.empty and freq.max() > 0 else 1
+      recent_freq_max = recent_freq.max() if not recent_freq.empty and recent_freq.max() > 0 else 1
+      
+      for i in range(1, 46):
+          freq_weight = freq.get(i, 0) / freq_max
+          recent_weight = recent_freq.get(i, 0) / recent_freq_max
+          gap = last_appearance.get(i, 0)
+          gap_weight = min(gap / 100, 1.0) if gap > 30 else 0.3
+          
+          weights[i] = (freq_weight * w_f + recent_weight * w_t + gap_weight * w_g) * 2.0
+          weights[i] = max(0.3, min(weights[i], 2.5))
   
   st.markdown("""
   <p style='color:#666; font-size:15px; margin-bottom:20px;'>
-  ✨ <b>AI 고급 분석:</b> 빈도(50%) + 최근추세(30%) + 미출현패턴(20%) + 구간균형 + 홀짝비율 최적화
+  ✨ <b>AI 고급 분석:</b> 사용자 설정 가중치와 다양한 필터를 결합하여 최적의 조합을 추천합니다.
   </p>
   """, unsafe_allow_html=True)
   
+  # 고급 설정 (제외수, 고정수)
+  with st.expander("⚙️ 고급 설정 (제외수 / 고정수)"):
+    col_ex, col_fix = st.columns(2)
+    with col_ex:
+      excluded_numbers = st.multiselect("🚫 제외할 번호", list(range(1, 46)), key="ai_exclude_nums")
+    with col_fix:
+      fixed_numbers = st.multiselect("📌 고정할 번호 (최대 5개)", list(range(1, 46)), key="ai_fixed_nums")
+      if len(fixed_numbers) > 5:
+        st.warning("고정수는 최대 5개까지만 선택 가능합니다.")
+
   # 번호 생성 함수 (고도화)
   def generate_combinations():
     combinations = []
     attempt = 0
-    max_attempts = 50
+    max_attempts = 100  # 고정수 사용 시 조건 만족이 어려울 수 있어 시도 횟수 증가
+    
+    # 고정수 처리 (제외수와 겹치면 제외수가 우선 -> 제외수에 있으면 고정수에서 제거)
+    real_fixed = [n for n in fixed_numbers if n not in excluded_numbers]
+    if len(real_fixed) > 5:
+        real_fixed = real_fixed[:5]
+        
+    # 고정수 자체의 연속성 위반 여부 확인 (이미 위반 시 연속성 체크 패스)
+    fixed_consecutive_violation = False
+    if len(real_fixed) >= 3:
+        nums_sorted = sorted(real_fixed)
+        cnt = 0
+        for j in range(len(nums_sorted)-1):
+            if nums_sorted[j+1] - nums_sorted[j] == 1:
+                cnt += 1
+        if cnt > 2:
+            fixed_consecutive_violation = True
     
     while len(combinations) < 5 and attempt < max_attempts:
       attempt += 1
-      numbers = []
-      available = list(range(1, 46))
+      numbers = list(real_fixed)
+      available = [n for n in range(1, 46) if n not in excluded_numbers and n not in numbers]
+      
+      if len(numbers) + len(available) < 6:
+        break
       
       while len(numbers) < 6:
         remaining_weights = [weights[n] for n in available]
         total_weight = sum(remaining_weights)
-        probabilities = [w/total_weight for w in remaining_weights]
+        if total_weight == 0:
+            probabilities = [1/len(available)] * len(available)
+        else:
+            probabilities = [w/total_weight for w in remaining_weights]
         
         selected = random.choices(available, weights=probabilities, k=1)[0]
         numbers.append(selected)
         available.remove(selected)
         
-        # 연속번호 3개 초과 방지
-        if len(numbers) >= 3:
+        # 연속번호 3개 초과 방지 (고정수가 이미 위반했으면 체크 건너뜀)
+        if not fixed_consecutive_violation and len(numbers) >= 3:
           numbers_sorted = sorted(numbers)
           consecutive_count = 0
           for j in range(len(numbers_sorted)-1):
@@ -429,7 +561,12 @@ def tab4_content():
     
     # 5개 미만이면 부족한 만큼 무작위 추가
     while len(combinations) < 5:
-      nums = sorted(random.sample(range(1, 46), 6))
+      available_fallback = [n for n in range(1, 46) if n not in excluded_numbers and n not in real_fixed]
+      if len(available_fallback) + len(real_fixed) < 6:
+        break
+      
+      needed = 6 - len(real_fixed)
+      nums = sorted(real_fixed + random.sample(available_fallback, needed))
       if nums not in combinations:
         combinations.append(nums)
     
@@ -459,28 +596,82 @@ def tab4_content():
       html_output = ""
       for i, comb in enumerate(st.session_state['ai_combinations']):
         html_output += f"<p style='font-weight:bold; margin:15px 0 5px 0;'>🎯 AI 조합 {i+1}</p>"
-        html_output += "<div style='display:flex; gap:8px; margin-bottom:15px;'>"
-        for num in comb:
-          color = get_color(num)
-          html_output += f"""<div style='background-color:{color}; color:white; border-radius:50%; 
-          width:55px; height:55px; display:flex; align-items:center; 
-          justify-content:center; font-size:20px; font-weight:bold; 
-          box-shadow:0 2px 4px rgba(0,0,0,0.2);'>{num}</div>"""
-        html_output += "</div>"
+        balls_html = generate_lotto_balls_html(comb, size=55, font_size=20, use_flex=True, extra_css="font-weight:bold; box-shadow:0 2px 4px rgba(0,0,0,0.2);")
+        html_output += f"<div style='display:flex; gap:8px; margin-bottom:15px;'>{balls_html}</div>"
       
       st.markdown(html_output, unsafe_allow_html=True)
       
+      # --- 이미지 생성 및 다운로드 기능 ---
+      def create_combinations_image(combinations):
+          ball_size = 55
+          padding = 25
+          h_spacing = 10
+          v_spacing = 25
+          title_v_offset = 30
+
+          row_height = ball_size + v_spacing + title_v_offset
+          img_width = padding * 2 + 6 * ball_size + 5 * h_spacing
+          img_height = padding * 2 + len(combinations) * row_height - v_spacing
+
+          image = Image.new('RGB', (img_width, img_height), (255, 255, 255))
+          draw = ImageDraw.Draw(image)
+
+          try:
+              title_font = ImageFont.truetype("malgun.ttf", 20)
+              ball_font = ImageFont.truetype("malgun.ttf", 26)
+          except IOError:
+              title_font = ImageFont.load_default()
+              ball_font = ImageFont.load_default()
+
+          color_map = {
+              "gold": (255, 215, 0), "dodgerblue": (30, 144, 255),
+              "red": (255, 0, 0), "black": (80, 80, 80), "green": (46, 139, 87)
+          }
+
+          for i, comb in enumerate(combinations):
+              y_pos = padding + i * row_height
+              draw.text((padding, y_pos), f"🎯 AI 조합 {i+1}", fill=(50, 50, 50), font=title_font)
+
+              for j, num in enumerate(comb):
+                  x_pos = padding + j * (ball_size + h_spacing)
+                  box = [x_pos, y_pos + title_v_offset, x_pos + ball_size, y_pos + title_v_offset + ball_size]
+                  
+                  ball_color_name = get_color(num)
+                  pillow_ball_color = color_map.get(ball_color_name, (128, 128, 128))
+                  text_color = (0, 0, 0) if ball_color_name == "gold" else (255, 255, 255)
+
+                  draw.ellipse(box, fill=pillow_ball_color, outline=(200,200,200), width=1)
+
+                  num_str = str(num)
+                  bbox = draw.textbbox((0, 0), num_str, font=ball_font)
+                  text_width, text_height = bbox[2] - bbox[0], bbox[3] - bbox[1]
+                  text_x = x_pos + (ball_size - text_width) / 2
+                  text_y = y_pos + title_v_offset + (ball_size - text_height) / 2 - 4
+                  draw.text((text_x, text_y), num_str, fill=text_color, font=ball_font)
+
+          buf = BytesIO()
+          image.save(buf, format='PNG')
+          return buf.getvalue()
+      
+      image_bytes = create_combinations_image(st.session_state['ai_combinations'])
+      st.download_button(
+          label="🖼️ 이미지로 저장",
+          data=image_bytes,
+          file_name=f"lotto_ai_recommendations_{datetime.date.today()}.png",
+          mime="image/png"
+      )
+
       if has_data:
         st.success("🎯 **10/10 AI 분석 완료:** 빈도·추세·미출현 패턴 + 구간균형 + 홀짝비율 + 번호합계 + 연속번호 제어 적용")
         
         # 분석 상세 정보 표시
         with st.expander("📊 AI 분석 세부 정보 보기"):
           st.markdown(f"""
-          - **빈도 분석**: 최근 300회 데이터 기반 출현 빈도 (가중치 50%)
-          - **최근 추세**: 최근 50회 핫 번호 우선 선택 (가중치 30%)
-          - **미출현 패턴**: 30회 이상 미출현 번호 우대 (가중치 20%)
+          - **빈도 분석**: 최근 300회 데이터 기반 출현 빈도 (현재 가중치: {w_f:.0%})
+          - **최근 추세**: 최근 50회 핫 번호 우선 선택 (현재 가중치: {w_t:.0%})
+          - **미출현 패턴**: 30회 이상 미출현 번호 우대 (현재 가중치: {w_g:.0%})
           - **구간 균형**: 5개 구간(1-10, 11-20, 21-30, 31-40, 41-45) 균등 분포
-          - **홀짝 비율**: 홀수 2~4개 유지 (평균: {avg_odd:.1f}개)
+          - **홀짝 비율**: 홀수 2~4개 유지 (최근 300회 평균: {avg_odd:.1f}개)
           - **연속 번호**: 연속 3개 이상 제외
           - **번호 합계**: 100~160 범위 (당첨 평균: 120~130)
           - **중복 방지**: 동일 조합 제외
@@ -489,583 +680,544 @@ def tab4_content():
       st.info("👆 위의 버튼을 눌러 AI가 분석한 추천 번호를 생성하세요!")
 
 
-# ===== 스타일 설정 =====
-st.markdown("""
-<style>
-body, .stApp {
-  background: linear-gradient(135deg, #e8f5e9 0%, #f1f8e9 50%, #fff9c4 100%) !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# ===== 상단 3분할 레이아웃 =====
-col_left, col_center, col_right = st.columns([1.2, 2, 2.2], gap="large")
-with col_left:
+def tab5_content():
   st.markdown("""
-  <style>
-  div.row-widget.stButton > button {
-    width: 140px;
-    height: 38px;
-    background: #fff;
-    border-radius: 10px;
-    font-size: 16px;
-    font-weight: 700;
-    margin-bottom: 7px;
-    border: 2px solid #7f7fd5;
-    color: #7f7fd5;
-    box-shadow: 0 1px 4px rgba(127,127,213,0.08);
-    transition: transform 0.08s, box-shadow 0.18s;
-  }
-  div.row-widget.stButton > button:hover {
-    transform: scale(1.05);
-    box-shadow: 0 2px 8px rgba(127,127,213,0.15);
-  }
-  div.row-widget.stButton > button:active {
-    transform: scale(0.95);
-  }
-  </style>
-  """, unsafe_allow_html=True)
-  
-  if st.button("👉 구독", key="subscribe_btn_top"):
-    st.session_state['subscribe_count'] += 1
-    st.success(f"구독해주셔서 감사합니다! (총 {st.session_state['subscribe_count']}명)")
-  
-  if st.button("👍 좋아요", key="like_btn_top"):
-    st.session_state['like_count'] += 1
-    st.success(f"좋아요 감사합니다! (총 {st.session_state['like_count']}개)")
-  
-  if st.button("🔗 공유", key="share_btn_top"):
-    st.info("링크가 클립보드에 복사되었습니다!")
-    
-with col_center:
-  st.markdown("""
-  <style>
-  .header-row-final {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    margin-top: -20px;
-    width: 80%;
-    min-width: 600px;
-    max-width: 950px;
-    white-space: nowrap;
-  }
-  .header-emoji-final {
-    font-size: 56px;
-    margin: 0 5px 0 0;
-    filter: drop-shadow(0 2px 8px #ffd70088);
-    display: inline-block;
-    vertical-align: middle;
-    animation: bounce-emoji 1.5s ease-in-out infinite;
-  }
-  @keyframes bounce-emoji {
-    0%, 100% { 
-      transform: translateY(0) scale(1); 
-      filter: drop-shadow(0 2px 8px #ffd70088);
-    }
-    50% { 
-      transform: translateY(-15px) scale(1.15) rotate(10deg); 
-      filter: drop-shadow(0 8px 16px #ffd700dd);
-    }
-  }
-  .header-emoji-final:nth-child(3) {
-    animation-delay: 0.3s;
-  }
-  .header-emoji-right {
-    font-size: 56px;
-    margin: 0 0 0 5px;
-    filter: drop-shadow(0 2px 8px #ffd70088);
-    display: inline-block;
-    vertical-align: middle;
-    animation: bounce-emoji 1.5s ease-in-out infinite;
-    animation-delay: 0.3s;
-  }
-  .header-title-final {
-    font-size: 58px;
-    font-weight: 900;
-    color: #7f7fd5;
-    letter-spacing: 0.08em;
-    text-shadow: 3px 5px 15px #b3b3e6, 0 2px 0 #fff, 0 0 30px #7f7fd5;
-    margin-right: 5px;
-    display: inline-block;
-    vertical-align: middle;
-    line-height: 1;
-    white-space: nowrap;
-    animation: glow-title 2s ease-in-out infinite;
-  }
-  @keyframes glow-title {
-    0%, 100% { 
-      text-shadow: 3px 5px 15px #b3b3e6, 0 2px 0 #fff, 0 0 30px #7f7fd5;
-    }
-    50% { 
-      text-shadow: 3px 5px 20px #b3b3e6, 0 2px 0 #fff, 0 0 50px #7f7fd5, 0 0 70px #b3b3e6;
-    }
-  }
-  .header-slogan-final {
-    font-size: 46px;
-    font-weight: 900;
-    color: #ff3c00;
-    letter-spacing: 0.04em;
-    margin-left: 5px;
-    text-shadow: 2px 4px 12px #ffb3b3, 0 2px 0 #fff, 0 0 25px #ff3c00;
-    background: none;
-    -webkit-background-clip: unset;
-    -webkit-text-fill-color: #ff3c00;
-    background-clip: unset;
-    display: inline-block;
-    line-height: 1;
-    white-space: normal;
-    word-break: keep-all;
-    vertical-align: middle;
-    animation: pulse-slogan 1.8s ease-in-out infinite;
-  }
-  @keyframes pulse-slogan {
-    0%, 100% { 
-      transform: scale(1);
-      filter: brightness(1);
-    }
-    50% { 
-      transform: scale(1.08);
-      filter: brightness(1.2);
-    }
-  }
-  </style>
-  <div class='header-row-final'>
-    <span class='header-emoji-final'>✨</span>
-    <span class='header-title-final'>로또킹과</span>
-    <span class='header-slogan-final'>더 높은 곳을 향하여</span>
-    <span class='header-emoji-right'>👑</span>
-  </div>
-  """, unsafe_allow_html=True)
-with col_right:
-  # 회차 및 날짜 계산
-  now = datetime.datetime.now()
-  # 1206회차 기준: 2026년 1월 3일 21시 시작, 1월 10일 21시 추첨
-  base_round = 1206
-  base_start_datetime = datetime.datetime(2026, 1, 3, 21, 0, 0)
-  
-  # 현재 시각 기준으로 몇 주 지났는지 계산
-  time_diff = (now - base_start_datetime).total_seconds()
-  weeks_passed = int(time_diff // (7 * 24 * 3600))
-  
-  # 현재 회차와 다음 추첨일 계산
-  if time_diff < 0:
-    # 기준일 이전이면 이전 회차
-    round_num = base_round - 1
-    next_draw_datetime = base_start_datetime
-  else:
-    round_num = base_round + weeks_passed
-    next_draw_datetime = base_start_datetime + datetime.timedelta(weeks=weeks_passed + 1)
-  
-  st.markdown(f"""
-  <div style='text-align:right; margin-top:10px;'>
-    <span style='font-size:22px; font-weight:700; color:#222;'>
-      {round_num}회차
-    </span><br>
-    <span style='font-size:16px; color:#666;'>
-      추첨일: {next_draw_datetime.strftime('%Y년 %m월 %d일')} 21시까지
-    </span>
+  <div style='background-color:#333; border-radius:20px; padding:10px; text-align:center;'>
+    <h2 style='color:gold; font-size:36px;'>🏆 당첨 확인</h2>
+    <p style='color:white; font-size:18px;'>회차별 당첨 번호와 나의 번호를 맞춰보세요</p>
   </div>
   """, unsafe_allow_html=True)
 
-# CSS 스타일 정의
-st.markdown("""
-<style>
-/* 모바일 반응형 CSS */
-@media screen and (max-width: 768px) {
-  /* 헤더 폰트 크기 축소 */
-  .header-emoji-final {
-    font-size: 28px !important;
-  }
-  .header-title-final {
-    font-size: 24px !important;
-    letter-spacing: 0.02em !important;
-  }
-  .header-slogan-final {
-    font-size: 20px !important;
-    letter-spacing: 0.02em !important;
-  }
-  .header-emoji-right {
-    font-size: 28px !important;
-  }
-  .header-row-final {
-    flex-wrap: wrap !important;
-    justify-content: center !important;
-  }
-  
-  /* 버튼 크기 조정 */
-  div.stButton > button {
-    width: 100% !important;
-    height: 48px !important;
-    font-size: 14px !important;
-    margin-bottom: 12px !important;
-  }
-  
-  /* 로또 공 크기 축소 */
-  .ball {
-    width: 40px !important;
-    height: 40px !important;
-    font-size: 16px !important;
-  }
-  
-  /* 컬럼 간격 축소 */
-  [data-testid="column"] {
-    padding: 5px !important;
-  }
-  
-  /* 텍스트 크기 조정 */
-  h1 { font-size: 24px !important; }
-  h2 { font-size: 20px !important; }
-  h3 { font-size: 18px !important; }
-  p { font-size: 14px !important; }
-}
+  past_results = load_lotto_data()
+  if past_results is None:
+      st.error("`past_results.csv` 파일을 찾을 수 없거나 데이터가 손상되었습니다. 앱을 재시작하거나 데이터를 확인해주세요.")
+      return
 
-/* 기존 스타일 */
-.aspect-12-9 {
-  position: relative;
-  width: 100%;
-  max-width: 1200px;
-  margin: 0 auto;
-  border-radius: 16px;
-  overflow: hidden;
-  box-shadow: 0 8px 24px rgba(0,0,0,.15);
-}
-.aspect-12-9::before {
-  content: "";
-  display: block;
-  padding-top: 75%;
-}
-.aspect-12-9 > .content {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  grid-template-columns: 1fr 4fr;
-  gap: 20px;
-  background: #e6e0f8;
-  padding: 20px;
-  box-sizing: border-box;
-}
-.left-column {
-  display: grid;
-  grid-template-rows: repeat(4, 1fr);
-  gap: 20px;
-}
-.frame {
-  background: #ffffff;
-  border-radius: 12px;
-  box-shadow: 0 4px 12px rgba(0,0,0,.1);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.button-custom {
-  width: 100px;
-  height: 40px;
-  background-color: #28a745;
-  color: #fff;
-  border: none;
-  border-radius: 6px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.button-custom:hover {
-  background-color: #218838;
-}
-.big-frame {
-  background: #ffffff;
-  border-radius: 12px;
-  box-shadow: 0 4px 12px rgba(0,0,0,.1);
-  overflow: hidden;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 0;
-  margin: 0;
-}
-.big-frame img {
-  width: 100%;
-  height: auto;
-  object-fit: contain;
-  border-radius: 12px;
-}
-</style>
-""", unsafe_allow_html=True)
-
-
-
-# Streamlit columns로 레이아웃 분리 (왼쪽 버튼, 오른쪽 big-frame+이미지)
-
-# 왼쪽 띠별 추천번호 프레임을 세로로 일정 간격으로 배치
-left, right = st.columns([1, 4], gap="large")
-with left:
-  st.markdown(
-    """
-    <div style="display: flex; flex-direction: column; gap: 32px; margin-top: 0px;">
-    """,
-    unsafe_allow_html=True
-  )
-  # 멋진 버튼 스타일 CSS (st.button에만 적용)
-  st.markdown("""
-  <style>
-  div.stButton > button {
-    width: 180px;
-    height: 54px;
-    margin-bottom: 22px;
-    background: linear-gradient(90deg, #7f7fd5 0%, #86a8e7 50%, #91eac9 100%);
-    color: #fff;
-    border: none;
-    border-radius: 18px;
-    font-size: 20px;
-    font-weight: 700;
-    box-shadow: 0 4px 16px rgba(80,80,180,0.13);
-    cursor: pointer;
-    transition: transform 0.1s, box-shadow 0.2s;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    letter-spacing: 1px;
-  }
-  div.stButton > button:hover {
-    background: linear-gradient(90deg, #91eac9 0%, #86a8e7 50%, #7f7fd5 100%);
-    transform: translateY(-2px) scale(1.04);
-    box-shadow: 0 8px 24px rgba(80,80,180,0.18);
-  }
-  </style>
-  """, unsafe_allow_html=True)
-  # st.button + 이모지로 멋진 버튼
-  if st.button("🎵 띠별 추천번호"):
-    st.session_state['show_tab'] = 'tab1'
-  if st.button("🧭 주역 추천번호"):
-    st.session_state['show_tab'] = 'tab2'
-  if st.button("📊 통계 추천"):
-    st.session_state['show_tab'] = 'tab3'
-  if st.button("🧠 AI 통합 추천"):
-    st.session_state['show_tab'] = 'tab4'
-
-  st.markdown("</div>", unsafe_allow_html=True)
-with right:
-  show_tab = st.session_state.get('show_tab')
-  if show_tab in ['tab1', 'tab2', 'tab3', 'tab4']:
-    col_btn, _ = st.columns([2, 7])
-    with col_btn:
-      if st.button('메인으로', key='main_back', help='메인 화면으로 이동'):
-        st.session_state['show_tab'] = None
+  try:
+    valid_rounds = past_results["회차_int"].tolist()
     
-    # tab2(주역)와 tab4(AI)에 좋아요/구독 버튼 표시 (안정화)
-    if show_tab in ['tab2', 'tab4']:
-      st.markdown("""
-      <div style='display:flex; gap:20px; margin:20px 0; padding:15px; background:#f8f9fa; border-radius:10px;'>
-        <div style='flex:1; text-align:center;'>
-          <div style='font-size:24px; margin-bottom:5px;'>👍</div>
-          <div style='color:#666; font-size:14px;'>좋아요: {}</div>
-        </div>
-        <div style='flex:1; text-align:center;'>
-          <div style='font-size:24px; margin-bottom:5px;'>👉</div>
-          <div style='color:#666; font-size:14px;'>구독자: {}</div>
-        </div>
-      </div>
-      """.format(st.session_state['like_count'], st.session_state['subscribe_count']), unsafe_allow_html=True)
-      
-      btn_col1, btn_col2 = st.columns([1, 1])
-      with btn_col1:
-        if st.button('👍 좋아요', key=f'like_{show_tab}', use_container_width=True):
-          st.session_state['like_count'] += 1
-      with btn_col2:
-        if st.button('👉 구독', key=f'subscribe_{show_tab}', use_container_width=True):
-          st.session_state['subscribe_count'] += 1
-      st.markdown("---")
-    
-    if show_tab == 'tab1':
-      tab1_content()
-    elif show_tab == 'tab2':
-      tab2_content()
-    elif show_tab == 'tab4':
-      tab4_content()
-    elif show_tab == 'tab3':
-      tab3_content()
-  else:
-    # 메인 화면 - 메인 이미지 확대 표시
-    # 자동 썸네일 선택
-    thumb_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd()
-    thumb_candidates = [f for f in os.listdir(thumb_dir) if f.startswith('lottoking') and f.lower().endswith(('.jpg','.jpeg','.png'))]
-    
-    # 세션 상태 또는 파일에서 이미지 로드
-    if 'main_thumbnail' in st.session_state:
-        # PIL로 이미지 크기 확대 후 HTML로 표시
-        img = st.session_state['main_thumbnail']
-        if isinstance(img, str):
-            img = Image.open(img)
-        # 모바일 대응: 원본 크기 유지 (확대 제거)
-        buffered = BytesIO()
-        img.save(buffered, format="PNG")
-        img_str = base64.b64encode(buffered.getvalue()).decode()
-        st.markdown(f'<img src="data:image/png;base64,{img_str}" style="width:100%; max-width:800px; height:auto; border-radius:12px; display:block; margin:0 auto;">', unsafe_allow_html=True)
-    elif thumb_candidates:
-        pick = random.choice(thumb_candidates)
-        image_path = os.path.join(thumb_dir, pick)
-        try:
-            image = Image.open(image_path)
-            # 모바일 대응: 원본 크기 유지 (확대 제거)
-            buffered = BytesIO()
-            image.save(buffered, format="PNG")
-            img_str = base64.b64encode(buffered.getvalue()).decode()
-            st.markdown(f'<img src="data:image/png;base64,{img_str}" style="width:100%; max-width:800px; height:auto; border-radius:12px; display:block; margin:0 auto;">', unsafe_allow_html=True)
-        except:
-            # 이미지 로드 실패 시 멋진 플레이스홀더
-            st.markdown("""
-            <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                        border-radius:20px; padding:100px 80px; text-align:center; box-shadow: 0 10px 40px rgba(0,0,0,0.2);'>
-                <h1 style='color:white; font-size:72px; margin:0;'>🎰 로또킹</h1>
-                <p style='color:#fff; font-size:36px; margin-top:30px;'>당신의 행운을 응원합니다!</p>
-                <div style='margin-top:40px;'>
-                    <span style='font-size:60px; margin:0 20px;'>🍀</span>
-                    <span style='font-size:60px; margin:0 20px;'>💎</span>
-                    <span style='font-size:60px; margin:0 20px;'>⭐</span>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-    else:
-        # 이미지가 없을 경우 멋진 플레이스홀더
-        st.markdown("""
-        <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                    border-radius:20px; padding:100px 80px; text-align:center; box-shadow: 0 10px 40px rgba(0,0,0,0.2);'>
-            <h1 style='color:white; font-size:72px; margin:0;'>🎰 로또킹</h1>
-            <p style='color:#fff; font-size:36px; margin-top:30px;'>당신의 행운을 응원합니다!</p>
-            <div style='margin-top:40px;'>
-                <span style='font-size:60px; margin:0 20px;'>🍀</span>
-                <span style='font-size:60px; margin:0 20px;'>💎</span>
-                <span style='font-size:60px; margin:0 20px;'>⭐</span>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # 메인 화면 추가 정보 섹션
-    st.markdown("<div style='margin-top:35px;'></div>", unsafe_allow_html=True)
-    
-    # 3단 특징 카드 섹션
-    col1, col2, col3 = st.columns(3, gap="medium")
+    # QR 코드 스캔 기능 추가
+    with st.expander("📷 QR코드로 번호 스캔 (카메라)"):
+      if not cv2_available:
+        st.warning("⚠️ QR코드 스캔 기능을 사용하려면 'opencv-python' 라이브러리가 필요합니다.\n터미널에 `pip install opencv-python`을 입력하여 설치해주세요.")
+      else:
+        img_file = st.camera_input("로또 용지의 QR코드를 비춰주세요")
+        if img_file:
+          try:
+            bytes_data = img_file.getvalue()
+            cv2_img = cv2.imdecode(np.frombuffer(bytes_data, np.uint8), cv2.IMREAD_COLOR)
+            detector = cv2.QRCodeDetector()
+            data, bbox, _ = detector.detectAndDecode(cv2_img)
+            
+            if data and "dhlottery.co.kr" in data:
+               if "v=" in data:
+                 q_str = data.split("v=")[1]
+                 round_part = q_str[:4]
+                 try:
+                   scanned_round = int(round_part)
+                   if scanned_round in valid_rounds:
+                     st.session_state["check_round_select"] = scanned_round
+                   else:
+                     st.warning(f"스캔된 {scanned_round}회차 데이터가 아직 없습니다.")
+                 except:
+                   pass
+                 
+                 # 게임 번호 추출 (알파벳 + 숫자12자리)
+                 games = re.findall(r'a-z', q_str)
+                 for i, g in enumerate(games):
+                   if i < 5:
+                     nums = [int(g[j:j+2]) for j in range(0, 12, 2)]
+                     st.session_state[f"check_g{i}"] = ", ".join(map(str, nums))
+                 
+                 # 나머지 칸 비우기
+                 for i in range(len(games), 5):
+                   st.session_state[f"check_g{i}"] = ""
+                   
+                 st.success(f"✅ QR코드 인식 성공! {len(games)}게임이 입력되었습니다.")
+            elif data:
+               st.warning("로또 복권 QR코드가 아닙니다.")
+          except Exception as e:
+            st.error(f"QR 스캔 오류: {e}")
+
+    # 텍스트 일괄 붙여넣기 기능 추가
+    with st.expander("📋 텍스트로 한 번에 붙여넣기 (여러 게임)"):
+      st.info("메모장, 카톡 등에서 복사한 번호를 붙여넣고 '적용하기'를 누르세요.\n(예: 1, 2, 3, 4, 5, 6 또는 1 2 3 4 5 6)")
+      paste_text = st.text_area("번호 입력 (여러 줄 가능)", height=100)
+      if st.button("번호 적용하기", key="btn_apply_paste"):
+        if paste_text:
+          # 줄 단위로 분리
+          lines = paste_text.strip().split('\n')
+          game_count = 0
+          for line in lines:
+            # 숫자만 추출
+            nums = re.findall(r'\d+', line)
+            # 6개 이상인 경우만 유효한 게임으로 간주
+            if len(nums) >= 6:
+              # 1~45 사이의 숫자인지 확인하고 6개만 취함
+              valid_nums = []
+              for n in nums:
+                if 1 <= int(n) <= 45:
+                  valid_nums.append(n)
+                if len(valid_nums) == 6:
+                  break
+              
+              if len(valid_nums) == 6:
+                st.session_state[f"check_g{game_count}"] = ", ".join(valid_nums)
+                game_count += 1
+                if game_count >= 5:
+                  break
+          
+          # 남은 슬롯 초기화
+          for i in range(game_count, 5):
+            st.session_state[f"check_g{i}"] = ""
+          
+          if game_count > 0:
+            st.success(f"✅ {game_count}개 게임이 입력되었습니다.")
+          else:
+            st.warning("유효한 로또 번호를 찾을 수 없습니다.")
+
+    col1, col2 = st.columns([1, 2])
     with col1:
-        st.markdown("""
-        <style>
-        .feature-card {
-            background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
-            padding:30px;
-            border-radius:18px;
-            box-shadow:0 6px 20px rgba(0,0,0,0.12);
-            text-align:center;
-            min-height:200px;
-            display:flex;
-            flex-direction:column;
-            justify-content:center;
-            transition: transform 0.3s, box-shadow 0.3s;
-            cursor: pointer;
-        }
-        .feature-card:hover {
-            transform: translateY(-8px);
-            box-shadow:0 12px 30px rgba(0,0,0,0.18);
-        }
-        .feature-card-2 {
-            background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%);
-        }
-        .feature-card-3 {
-            background: linear-gradient(135deg, #fbc2eb 0%, #a6c1ee 100%);
-        }
-        </style>
-        <div class='feature-card'>
-            <div style='font-size:56px; margin-bottom:15px;'>🎯</div>
-            <h3 style='color:#2d3748; margin:12px 0; font-size:22px; font-weight:800;'>정확한 통계 분석</h3>
-            <p style='color:#4a5568; font-size:15px; line-height:1.6;'>과거 당첨 번호 데이터를<br>분석하여 최적의 번호를<br>추천해드립니다</p>
-        </div>
-        """, unsafe_allow_html=True)
+      selected_round = st.selectbox("회차 선택", valid_rounds, key="check_round_select")
+    
+    target_row = past_results[past_results["회차_int"] == selected_round].iloc[0]
+    winning_numbers = [int(target_row[f"번호{i}"]) for i in range(1, 7)]
+    winning_numbers.sort()
+    
     with col2:
+      st.write(f"**제 {selected_round}회 당첨번호**")
+      html_nums = generate_lotto_balls_html(winning_numbers, size=30, font_size=14)
+      st.markdown(html_nums, unsafe_allow_html=True)
+      
+    st.markdown("---")
+    st.write("### 📝 나의 번호 입력 (쉼표 또는 띄어쓰기로 구분)")
+    
+    user_inputs = []
+    for i in range(5):
+      val = st.text_input(f"게임 {i+1}", placeholder="예: 1, 2, 3, 4, 5, 6", key=f"check_g{i}")
+      user_inputs.append(val)
+    
+    if st.button("결과 확인", key="btn_check_win", type="primary"):
+      st.markdown("### 🕵️‍♂️ 확인 결과")
+      for idx, val in enumerate(user_inputs):
+        if not val.strip():
+          continue
+        
+        try:
+          nums_str = val.replace(",", " ").split()
+          my_nums = [int(n) for n in nums_str]
+          
+          if len(my_nums) != 6:
+            st.warning(f"게임 {idx+1}: 6개의 숫자를 입력해주세요.")
+            continue
+            
+          my_nums.sort()
+          matched = set(my_nums) & set(winning_numbers)
+          match_count = len(matched)
+          
+          rank_str = "낙첨 😅"
+          bg_color = "#f0f0f0"
+          border_color = "#ddd"
+          
+          if match_count == 6:
+            rank_str = "🥇 1등 당첨!!"
+            bg_color = "#fff5e6"
+            border_color = "gold"
+          elif match_count == 5:
+            rank_str = "🥉 3등 당첨!! (보너스 제외)"
+            bg_color = "#e6f7ff"
+            border_color = "dodgerblue"
+          elif match_count == 4:
+            rank_str = "💵 4등 당첨"
+            bg_color = "#e6ffe6"
+            border_color = "limegreen"
+          elif match_count == 3:
+            rank_str = "🪙 5등 당첨"
+            bg_color = "#fff0f0"
+            border_color = "salmon"
+          
+          opacity_map = {n: (1.0 if n in winning_numbers else 0.2) for n in my_nums}
+          my_nums_html = generate_lotto_balls_html(my_nums, size=30, font_size=14, opacity_map=opacity_map)
+          
+          st.markdown(f"""
+          <div style='border:2px solid {border_color}; background-color:{bg_color}; border-radius:10px; padding:10px; margin-bottom:10px; display:flex; align-items:center; justify-content:space-between;'>
+            <div style='display:flex; align-items:center;'>
+              <span style='font-weight:bold; margin-right:10px; width:60px;'>게임 {idx+1}</span>
+              <div>{my_nums_html}</div>
+            </div>
+            <div style='font-weight:bold; font-size:16px; min-width:100px; text-align:right;'>{rank_str}</div>
+          </div>
+          """, unsafe_allow_html=True)
+            
+        except ValueError:
+          st.error(f"게임 {idx+1}: 숫자만 입력해주세요.")
+  except Exception as e:
+    st.error(f"데이터 로드 오류: {e}")
+
+
+def render_header():
+    """ Renders the custom top header for the app. """
+    try:
+        past_results = load_lotto_data()
+        if past_results is not None:
+            # 자동으로 다음 회차 계산
+            next_draw_round = past_results["회차_int"].max() + 1
+        else:
+            next_draw_round = 1209  # 파일 로드 실패 시 기본값
+    except Exception:
+        next_draw_round = 1209  # 파일 로드 실패 시 기본값
+
+    # '좋아요' 링크 생성
+    try:
+        current_params = st.query_params.to_dict()
+        like_params = current_params.copy()
+        like_params['action'] = 'like'
+        like_url = f"/?{urllib.parse.urlencode(like_params)}"
+    except Exception:
+        like_url = "/?action=like" # Fallback
+
+    st.markdown(f"""
+        <div class="top-header">
+            <div class="header-left">
+                <span>🔗 공유</span>
+                <a href="{like_url}" target="_self">❤️ 좋아요 {st.session_state.like_count}</a>
+                <span>🔔 구독</span>
+            </div>
+            <div class="header-center">
+                😘 로또킹과 더 높은 곳을 향하여 🚀
+            </div>
+            <div class="header-right">
+                추첨회차: 제 {next_draw_round}회 (자동)
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+def render_sidebar():
+    """ Renders the content for the left sidebar. """
+    st.markdown("""
+        <div class="logo">👑 로또킹</div>
+        <div class="nav-cards-container">
+            <div class="nav-card">
+                <a href="/?tab=tab1" target="_self">
+                    <span class="emoji">🎵</span>
+                    띠별 추천번호
+                </a>
+            </div>
+            <div class="nav-card">
+                <a href="/?tab=tab2" target="_self">
+                    <span class="emoji">🧭</span>
+                    주역 추천번호
+                </a>
+            </div>
+            <div class="nav-card">
+                <a href="/?tab=tab3" target="_self">
+                    <span class="emoji">📊</span>
+                    통계 추천
+                </a>
+            </div>
+            <div class="nav-card">
+                <a href="/?tab=tab4" target="_self">
+                    <span class="emoji">🧠</span>
+                    AI 통합 추천
+                </a>
+            </div>
+            <div class="nav-card">
+                <a href="/?tab=tab5" target="_self">
+                    <span class="emoji">🏆</span>
+                    당첨 확인
+                </a>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("<div style='flex-grow: 1;'></div>", unsafe_allow_html=True)
+
+    if st.button("🔄 온라인 데이터 업데이트", use_container_width=True, help="동행복권 사이트에서 최신 당첨 데이터를 가져옵니다."):
+        with st.spinner("최신 데이터를 확인하고 있습니다..."):
+            success, message = update_lotto_data_online()
+            if success:
+                st.success(message)
+                if "업데이트 완료" in message:
+                    st.rerun()
+            else:
+                st.error(message)
+
+
+def render_main_content():
+    """ Renders the content for the right main area. """
+    show_tab = st.session_state.get('show_tab')
+    if show_tab:
+        st.markdown(f'<a href="/" target="_self" style="text-decoration:none;"><button style="margin-bottom:20px;">🏠 메인 화면으로</button></a>', unsafe_allow_html=True)
+        if show_tab == 'tab1': tab1_content()
+        elif show_tab == 'tab2': tab2_content()
+        elif show_tab == 'tab3': tab3_content()
+        elif show_tab == 'tab4': tab4_content()
+        elif show_tab == 'tab5': tab5_content()
+    else:
         st.markdown("""
-        <div class='feature-card feature-card-2'>
-            <div style='font-size:56px; margin-bottom:15px;'>🧠</div>
-            <h3 style='color:#2d3748; margin:12px 0; font-size:22px; font-weight:800;'>AI 스마트 추천</h3>
-            <p style='color:#4a5568; font-size:15px; line-height:1.6;'>인공지능 알고리즘으로<br>패턴을 분석하여<br>똑똑한 조합을 제공합니다</p>
+        <div style='text-align:center; color:#333; height:100%; display:flex; flex-direction:column; justify-content:center;'>
+            <h2>로또킹 AI 분석</h2>
+            <p>왼쪽 메뉴에서 원하시는 번호 생성 방식을 선택하세요.</p>
+            <p style='font-size:5rem;'>👈</p>
         </div>
         """, unsafe_allow_html=True)
-    with col3:
-        st.markdown("""
-        <div class='feature-card feature-card-3'>
-            <div style='font-size:56px; margin-bottom:15px;'>🔮</div>
-            <h3 style='color:#2d3748; margin:12px 0; font-size:22px; font-weight:800;'>다양한 생성 방식</h3>
-            <p style='color:#4a5568; font-size:15px; line-height:1.6;'>띠별, 주역, 통계 등<br>여러 방식으로<br>행운의 번호를 만들어보세요</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # 사용 안내 + 최근 당첨 정보 2단 레이아웃
-    st.markdown("<div style='margin-top:40px;'></div>", unsafe_allow_html=True)
-    
-    info_col1, info_col2 = st.columns([1.5, 1], gap="medium")
-    
-    with info_col1:
-        st.markdown("""
-        <div style='background: linear-gradient(135deg, #e0f7fa 0%, #b2ebf2 100%); 
-                    padding:28px 35px; border-radius:16px; box-shadow:0 4px 15px rgba(0,0,0,0.1);
-                    border-left: 5px solid #00acc1; height:100%;'>
-            <h3 style='color:#006064; margin:0 0 15px 0; font-size:20px; font-weight:800;'>💡 사용 방법</h3>
-            <p style='color:#00838f; font-size:16px; line-height:1.8; margin:0;'>
-                왼쪽 메뉴에서 원하는 방식을 선택하세요. <b>띠별 추천</b>은 생년월일 기반, <b>주역 추천</b>은 방위 기반, 
-                <b>통계 추천</b>은 과거 데이터 분석, <b>AI 추천</b>은 인공지능 알고리즘으로 번호를 생성합니다.
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with info_col2:
-        st.markdown("""
-        <div style='background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%); 
-                    padding:28px 30px; border-radius:16px; box-shadow:0 4px 15px rgba(0,0,0,0.1);
-                    border-left: 5px solid #ff9800; height:100%;'>
-            <h3 style='color:#e65100; margin:0 0 12px 0; font-size:20px; font-weight:800;'>🎊 행운의 메시지</h3>
-            <p style='color:#f57c00; font-size:16px; line-height:1.7; margin:0;'>
-                <b>"행운은 준비된 자에게 찾아옵니다"</b><br>
-                매주 새로운 기회!<br>
-                오늘도 당신의 꿈을 응원합니다! 🍀
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-  
-  # YouTube 구독 배너 추가
-  st.markdown("<div style='margin-top:50px;'></div>", unsafe_allow_html=True)
-  st.markdown("""
-  <div style='background: linear-gradient(135deg, #ff0000 0%, #cc0000 100%); 
-              padding:35px; border-radius:20px; box-shadow:0 8px 25px rgba(255,0,0,0.3);
-              text-align:center; border: 3px solid #ffffff;'>
-      <div style='font-size:64px; margin-bottom:15px;'>🎬</div>
-      <h2 style='color:#ffffff; margin:15px 0; font-size:28px; font-weight:900; text-shadow: 2px 2px 4px rgba(0,0,0,0.3);'>
-          로또킹 YouTube 채널 구독하세요!
-      </h2>
-      <p style='color:#ffebee; font-size:18px; margin:15px 0 25px 0; line-height:1.6;'>
-          더 많은 로또 정보와 당첨 전략을 영상으로 만나보세요!<br>
-          구독과 알림 설정으로 최신 정보를 놓치지 마세요! 🔔
-      </p>
-      <a href='https://www.youtube.com/@lottoking-s6c' target='_blank' style='text-decoration:none;'>
-          <button style='background:#ffffff; color:#ff0000; padding:18px 50px; 
-                         border:none; border-radius:50px; font-size:20px; font-weight:900;
-                         cursor:pointer; box-shadow:0 4px 15px rgba(0,0,0,0.2);
-                         transition: all 0.3s ease;'>
-              ▶️ 지금 구독하기
-          </button>
-      </a>
-      <p style='color:#ffcdd2; font-size:14px; margin-top:15px;'>
-          @lottoking-s6c
-      </p>
-  </div>
-  """, unsafe_allow_html=True)
-  
-  # 메인 화면 하단 경고 메시지
-  st.markdown("""
-  <div style='margin-top:32px; padding:18px 0 0 0; text-align:center; color:#b00; font-size:17px; font-weight:600;'>
-    ⚠️ 로또 번호 예측은 불가능합니다. 본 서비스는 교육 및 오락 목적의 참고용입니다.<br>
-    <span style='font-size:15px; color:#d00; margin-top:8px; display:inline-block;'>실제 투자, 도박, 구매 등에는 신중을 기하시기 바랍니다. 당첨을 보장하지 않습니다.</span>
-  </div>
-  """, unsafe_allow_html=True)
 
+def get_image_as_base64(path):
+    if not os.path.exists(path):
+        return None
+    with open(path, "rb") as f:
+        data = f.read()
+    return base64.b64encode(data).decode()
 
+def render_footer():
+    """ Renders the bottom cards and disclaimer using Streamlit's columns for robust layout. """
+    thumb_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd()
+    # QR 코드 이미지 데이터 가져오기
+    qr_image_path = None
+    qr_image_name = '1YTkg'
+    for ext in ['.png', '.jpg', '.jpeg', '.gif']:
+        path = os.path.join(thumb_dir, qr_image_name + ext)
+        if os.path.exists(path):
+            qr_image_path = path
+            break
+    qr_image_b64 = get_image_as_base64(qr_image_path) if qr_image_path else None
 
+    # 카드 데이터 준비
+    cards_data = [
+        {"title": "🎯 통계 분석", "text": "과거 데이터를 분석하여 스노우보드<br>의 순위를 추천합니다."},
+        {"title": "🧠 AI 스마트 추천", "text": "AI 수리로<br>수리를 제공합니다."},
+        {"title": "🔮 다양한 생성", "text": "밴드별, 주역 등<br>다양한 방식으로 생성합니다."},
+    ]
+    if qr_image_b64:
+        cards_data.append({
+            "title": "📱 앱 공유하기",
+            "image_html": f'<img src="data:image/png;base64,{qr_image_b64}" width="60" alt="QR Code" style="margin-top:5px;">'
+        })
 
+    # Streamlit 컬럼을 사용하여 카드 렌더링
+    cols = st.columns(len(cards_data))
+    for i, col in enumerate(cols):
+        with col:
+            card = cards_data[i]
+            card_html = f"<div class='bottom-card'><h3>{card['title']}</h3>"
+            if 'text' in card:
+                card_html += f"<p>{card['text']}</p>"
+            if 'image_html' in card:
+                card_html += card['image_html']
+            card_html += "</div>"
+            st.markdown(card_html, unsafe_allow_html=True)
 
+    # 공통 하단 경고 메시지
+    st.markdown("""
+    <div style='margin-top:1rem; padding:10px; text-align:center; color:white; font-size:12px; background: rgba(0,0,0,0.6); border-radius:10px;'>
+      ⚠️ 로또 번호 예측은 통계적 참고 자료이며 당첨을 보장하지 않습니다. 모든 투자의 책임은 본인에게 있습니다.
+    </div>
+    """, unsafe_allow_html=True)
+
+# ===== 전체 레이아웃 설정 =====
+
+# 1. 배경 이미지 가져오기
+thumb_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd()
+bg_image_b64 = None
+# README에 명시된 lottoking1.jpg를 우선적으로 찾도록 수정
+image_path = os.path.join(thumb_dir, 'lottoking2.jpeg')
+if not os.path.exists(image_path):
+    # 대체 이미지 검색
+    thumb_candidates = [f for f in os.listdir(thumb_dir) if f.startswith('lottoking') and f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+    if thumb_candidates:
+        image_path = os.path.join(thumb_dir, random.choice(thumb_candidates))
+    else:
+        image_path = None
+
+if image_path:
+    bg_image_b64 = get_image_as_base64(image_path)
+
+# 2. CSS 스타일 주입
+st_app_style = ""
+card_bg_style = """
+        background: #f0f3f6; /* 배경이미지 없을 시 불투명 회색 */
+        """
+if bg_image_b64:
+    st_app_style = f"""
+    .stApp {{
+        background-image: url("data:image/jpeg;base64,{bg_image_b64}");
+        background-size: cover; /* 전체 화면을 채우도록 수정 */
+        background-position: 0% 0%; /* Initial position */
+        background-repeat: no-repeat;
+        background-attachment: fixed;
+        animation: pan-background 60s infinite alternate linear; /* Slow, continuous pan */
+    }}
+    """
+    card_bg_style = """
+        background: rgba(0, 0, 0, 0.6);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+    """
+
+st.markdown(f"""
+<style>
+    /* --- 전체 배경 및 기본 설정 --- */
+    @keyframes pan-background {{
+        0% {{
+            background-position: 0% 0%;
+        }}
+        100% {{
+            background-position: 100% 100%;
+        }}
+    }}
+
+    {st_app_style}
+
+    .main .block-container {{
+        padding: 0.5rem 1rem !important;
+    }}
+    /* --- 상단 헤더 --- */
+    .top-header {{
+        position: relative;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: rgba(0, 0, 0, 0.7);
+        color: white;
+        padding: 10px 20px;
+        border-radius: 15px;
+        margin-bottom: 1rem;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    }}
+    .header-left {{
+        font-size: 14px;
+    }}
+    .header-center {{
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 30px;
+        font-weight: bold;
+        color: white;
+        white-space: nowrap;
+    }}
+    .header-right {{
+        font-size: 14px;
+        font-weight: bold;
+        color: white;
+    }}
+    .header-left span, .header-left a {{
+        margin-right: 15px;
+        cursor: pointer;
+        opacity: 0.9;
+        transition: opacity 0.2s;
+        color: white;
+        text-decoration: none;
+    }}
+    .header-left span:hover, .header-left a:hover {{ opacity: 1; }}
+
+    /* --- 메인 카드 레이아웃 (컬럼 직접 스타일링) --- */
+    /* 사이드바 컬럼 스타일링 */
+    [data-testid="stHorizontalBlock"] > div:nth-child(1) > div {{
+        {card_bg_style}
+        border-radius: 15px;
+        padding: 25px; /* 최소 높이 제거 */
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        color: white; /* 기본 텍스트 색상 흰색으로 */
+    }}
+
+    /* 메인 콘텐츠 컬럼 스타일링 */
+    [data-testid="stHorizontalBlock"] > div:nth-child(2) > div {{
+        {card_bg_style}
+        border-radius: 15px;
+        padding: 25px; /* 최소 높이 제거 */
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+        overflow-y: auto;
+        color: white; /* 기본 텍스트 색상 흰색으로 */
+    }}
+
+    /* 사이드바 내부 콘텐츠 스타일 */
+    [data-testid="stHorizontalBlock"] > div:nth-child(1) .logo {{
+        text-align: center;
+        font-size: 28px;
+        font-weight: 900;
+        color: white;
+        margin-bottom: 20px;
+    }}
+    [data-testid="stHorizontalBlock"] > div:nth-child(1) .nav-cards-container {{
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }}
+    [data-testid="stHorizontalBlock"] > div:nth-child(1) .nav-card {{
+        background: #fc5c7d;
+        background: -webkit-linear-gradient(to right, #6a82fb, #fc5c7d);
+        background: linear-gradient(to right, #6a82fb, #fc5c7d);
+        border-radius: 10px;
+        padding: 15px;
+        text-align: center;
+        transition: all 0.3s ease;
+    }}
+    [data-testid="stHorizontalBlock"] > div:nth-child(1) .nav-card:hover {{
+        transform: scale(1.05);
+        box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+    }}
+    [data-testid="stHorizontalBlock"] > div:nth-child(1) .nav-card a {{
+        text-decoration: none;
+        color: white;
+        font-size: 16px;
+        font-weight: 700;
+    }}
+    [data-testid="stHorizontalBlock"] > div:nth-child(1) .nav-card .emoji {{
+        font-size: 24px;
+        display: block;
+        margin-bottom: 5px;
+    }}
+
+    /* Streamlit 위젯 스타일 오버라이드 */
+    [data-testid="stWidgetLabel"] > label {{
+        color: #f0f0f0 !important; /* 라벨 색상 */
+    }}
+    [data-testid="stRadio"] label span {{
+        color: white !important; /* 라디오 버튼 텍스트 */
+    }}
+
+    /* --- 하단 기능 카드 --- */
+    .bottom-card {{
+        background: rgba(0, 0, 0, 0.7);
+        color: white;
+        padding: 10px;
+        border-radius: 15px;
+        text-align: center;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        height: 100%; /* 컬럼 내 카드들이 동일한 높이를 갖도록 설정 */
+    }}
+    .bottom-card h3 {{
+        color: #ffd700;
+        font-size: 14px;
+        margin: 0 0 5px 0;
+    }}
+    .bottom-card p {{
+        font-size: 12px;
+        color: white;
+        margin: 0;
+    }}
+</style>
+""", unsafe_allow_html=True)
+
+# --- 2단 레이아웃 생성 ---
+
+render_header()
+
+sidebar_col, main_col = st.columns([1, 2.2])
+
+# --- 왼쪽 사이드바 구성 ---
+with sidebar_col:
+    render_sidebar()
+
+# --- 오른쪽 메인 컨텐츠 구성 ---
+with main_col:
+    render_main_content()
+
+# --- 하단 카드 및 QR 코드 구성 ---
+render_footer()
