@@ -1,4 +1,21 @@
 import streamlit as st
+import pandas as pd
+
+# 파일 업로드 UI
+st.title('Pd flame data 업로드 및 분석')
+uploaded_file = st.file_uploader('Pd flame data 엑셀 파일을 업로드하세요', type=['xls', 'xlsx', 'xlsm'])
+
+if uploaded_file is not None:
+    # 업로드된 파일을 pandas로 읽기
+    try:
+        df = pd.read_excel(uploaded_file)
+        st.success('파일 업로드 및 읽기 성공!')
+        st.dataframe(df.head())
+    except Exception as e:
+        st.error(f'파일을 읽는 중 오류 발생: {e}')
+else:
+    st.info('엑셀 파일을 업로드하면 데이터가 여기에 표시됩니다.')
+import streamlit as st
 import random
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -141,7 +158,7 @@ def tab2_content():
       st.session_state['tab2_show_result'] = True
   else:
     cols = st.columns(4)
-    year = cols[0].number_input("년",2000,2100,2025,key="jx_year2")
+    year = cols[0].number_input("년",1900,2100,2025,key="jx_year2")
     month = cols[1].number_input("월",1,12,12,key="jx_month2")
     day = cols[2].number_input("일",1,31,28,key="jx_day2")
     hour = cols[3].number_input("시",0,23,16,key="jx_hour2")
@@ -837,33 +854,29 @@ with right:
       if st.button('메인으로', key='main_back', help='메인 화면으로 이동'):
         st.session_state['show_tab'] = None
     
-    # tab2(주역)와 tab4(AI)에 좋아요/구독 버튼 표시 (단일 컨테이너로 안정화)
-    social_placeholder = st.empty()
-    with social_placeholder.container():
-      if show_tab in ['tab2', 'tab4']:
-        st.markdown("""
-        <div style='display:flex; gap:20px; margin:20px 0; padding:15px; background:#f8f9fa; border-radius:10px;'>
-          <div style='flex:1; text-align:center;'>
-            <div style='font-size:24px; margin-bottom:5px;'>👍</div>
-            <div style='color:#666; font-size:14px;'>좋아요: {}</div>
-          </div>
-          <div style='flex:1; text-align:center;'>
-            <div style='font-size:24px; margin-bottom:5px;'>👉</div>
-            <div style='color:#666; font-size:14px;'>구독자: {}</div>
-          </div>
+    # tab2(주역)와 tab4(AI)에 좋아요/구독 버튼 표시 (안정화)
+    if show_tab in ['tab2', 'tab4']:
+      st.markdown("""
+      <div style='display:flex; gap:20px; margin:20px 0; padding:15px; background:#f8f9fa; border-radius:10px;'>
+        <div style='flex:1; text-align:center;'>
+          <div style='font-size:24px; margin-bottom:5px;'>👍</div>
+          <div style='color:#666; font-size:14px;'>좋아요: {}</div>
         </div>
-        """.format(st.session_state['like_count'], st.session_state['subscribe_count']), unsafe_allow_html=True)
-        
-        btn_col1, btn_col2 = st.columns([1, 1])
-        with btn_col1:
-          if st.button('👍 좋아요', key=f'like_{show_tab}', width="stretch"):
-            st.session_state['like_count'] += 1
-            st.rerun()
-        with btn_col2:
-          if st.button('👉 구독', key=f'subscribe_{show_tab}', width="stretch"):
-            st.session_state['subscribe_count'] += 1
-            st.rerun()
-        st.markdown("---")
+        <div style='flex:1; text-align:center;'>
+          <div style='font-size:24px; margin-bottom:5px;'>👉</div>
+          <div style='color:#666; font-size:14px;'>구독자: {}</div>
+        </div>
+      </div>
+      """.format(st.session_state['like_count'], st.session_state['subscribe_count']), unsafe_allow_html=True)
+      
+      btn_col1, btn_col2 = st.columns([1, 1])
+      with btn_col1:
+        if st.button('👍 좋아요', key=f'like_{show_tab}', use_container_width=True):
+          st.session_state['like_count'] += 1
+      with btn_col2:
+        if st.button('👉 구독', key=f'subscribe_{show_tab}', use_container_width=True):
+          st.session_state['subscribe_count'] += 1
+      st.markdown("---")
     
     if show_tab == 'tab1':
       tab1_content()
