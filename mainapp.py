@@ -20,7 +20,7 @@ from bs4 import BeautifulSoup
 import platform
 
 # 페이지 설정 (가장 먼저 호출)
-st.set_page_config(layout="wide", page_title="로또킹 분석", initial_sidebar_state="auto")
+st.set_page_config(layout="wide", page_title="로또킹 분석", initial_sidebar_state="collapsed")
 
 # Query-Parameter를 이용한 탭 관리
 if 'show_tab' not in st.session_state:
@@ -1103,7 +1103,10 @@ def render_main_content():
     """ Renders the content for the right main area. """
     show_tab = st.session_state.get('show_tab')
     if show_tab:
-        st.markdown(f'<a href="/" target="_self" style="text-decoration:none;"><button style="margin-bottom:20px;">🏠 메인 화면으로</button></a>', unsafe_allow_html=True)
+        if st.button("🏠 메인 화면으로", key="btn_return_home"):
+            st.query_params.clear()
+            st.session_state['show_tab'] = None
+            st.rerun()
         if show_tab == 'tab1': tab1_content()
         elif show_tab == 'tab2': tab2_content()
         elif show_tab == 'tab3': tab3_content()
