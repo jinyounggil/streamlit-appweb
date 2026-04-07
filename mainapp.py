@@ -436,6 +436,8 @@ def tab3_content():
       st.error("`past_results.csv` 파일을 찾을 수 없거나 데이터가 손상되었습니다. 앱을 재시작하거나 데이터를 확인해주세요.")
       return
   latest_round = past_results["회차_int"].max()
+  excluded_nums = get_excluded_from_file()
+
   st.markdown("<h2 style='color:orange;'>📊 통계 추천</h2>", unsafe_allow_html=True)
   # 회차 범위 옵션 및 실제 범위 계산
   ranges = [300, 150, 75, 45, 30, 15, 5]
@@ -467,16 +469,17 @@ def tab3_content():
   
   st.pyplot(fig)
 
-  # hot/mid/cold num 표시
+  # hot/mid/cold num 표시 (추천을 위해 분석 범위를 넓힘)
   freq_sorted = freq.sort_values(ascending=False)
-  hot_nums = freq_sorted.head(6).index.tolist()
+  hot_nums_display = freq_sorted.head(6).index.tolist() # 화면 표시용 Top 6
+  hot_nums_all = freq_sorted.head(20).index.tolist()    # 추천 로직용 Top 20
   cold_nums = freq_sorted.tail(6).index.tolist()
   mid_start = len(freq_sorted)//2 - 3
   mid_nums = freq_sorted.iloc[mid_start:mid_start+6].index.tolist() if len(freq_sorted) >= 12 else []
   def balls(nums):
     return generate_lotto_balls_html(nums, size=40, font_size=18, margin="4px")
   
-  st.markdown(f"<div style='color:white; margin-bottom:5px;'><b>Hot Num</b> (최다 출현): {balls(sorted(hot_nums))}</div>", unsafe_allow_html=True)
+  st.markdown(f"<div style='color:white; margin-bottom:5px;'><b>Hot Num</b> (최다 출현): {balls(sorted(hot_nums_display))}</div>", unsafe_allow_html=True)
   if mid_nums:
     st.markdown(f"<div style='color:white; margin-bottom:5px;'><b>Mid Num</b> (중간 출현): {balls(sorted(mid_nums))}</div>", unsafe_allow_html=True)
   st.markdown(f"<div style='color:white; margin-bottom:5px;'><b>Cold Num</b> (최소 출현): {balls(sorted(cold_nums))}</div>", unsafe_allow_html=True)
@@ -491,7 +494,7 @@ def tab3_content():
   # 최다 빈도 추천 기능
   st.markdown("---")
   if st.button("\U0001f3c6 최다 빈도 12수 2조합 추천", key="btn_stat_rec_12"):
-      valid_hot = [n for n in hot_nums if n not in excluded_nums]
+      valid_hot = [n for n in hot_nums_all if n not in excluded_nums]
       if len(valid_hot) >= 12:
           for i in range(2):
               current_set = valid_hot[i*6:(i+1)*6]
@@ -1104,7 +1107,7 @@ def render_sidebar():
     """ Renders the content for the left sidebar. """
     st.markdown("""
         <div style="background: rgba(0,255,0,0.15); padding: 5px; border-radius: 5px; margin-bottom: 10px; font-size: 10px; color: #ccffcc; text-align: center; border: 1px solid rgba(0,255,0,0.2);">
-            v5.0 (Final Stable Version) \U0001f680
+            v5.1 (Fixed NameError & Stat Logic) \U0001f680
         </div>
     """, unsafe_allow_html=True)
 
