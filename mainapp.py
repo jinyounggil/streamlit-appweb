@@ -1072,7 +1072,7 @@ def render_sidebar():
     """ Renders the content for the left sidebar. """
     st.markdown("""
         <div style="background: rgba(255,0,0,0.2); padding: 5px; border-radius: 5px; margin-bottom: 10px; font-size: 10px; color: #ffcccc; text-align: center;">
-            v3.6 (GitHub Deployment Optimized)
+            v3.7 (GitHub Access Fixed)
         </div>
     """, unsafe_allow_html=True)
 
