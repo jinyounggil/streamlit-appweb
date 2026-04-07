@@ -705,6 +705,7 @@ def tab4_content():
       
       # 특정 구간에 4개 이상 몰리면 제외
       if max(zones) > 3:
+      # 특정 구간 몰림 방지 (12수 기준 5개 초과 몰림 제외)
       if max(zones) > 5:
         continue
       
@@ -1091,6 +1092,7 @@ def render_sidebar():
     st.markdown("""
         <div style="background: rgba(0,255,0,0.15); padding: 5px; border-radius: 5px; margin-bottom: 10px; font-size: 10px; color: #ccffcc; text-align: center; border: 1px solid rgba(0,255,0,0.2);">
             v4.7 (Indentation Error Fixed) \U0001f680
+            v4.8 (Logic Cleaning & Indentation Fixed) \U0001f680
         </div>
     """, unsafe_allow_html=True)
 
