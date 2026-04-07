@@ -131,7 +131,7 @@ def load_lotto_data(sheet_name="lotto-1"):
     try:
         df = None
 
-        # 1. pd flame data-3.xlsm 확인 (역할에 따른 시트 로드)
+        # 1. pd flame data-3.xlsm 확인 (lotto-1: 기본/AI용, lotto-2: 통계/빈도용)
         target_xlsm = "pd flame data-3.xlsm"
         if os.path.exists(target_xlsm):
             try:
@@ -141,9 +141,11 @@ def load_lotto_data(sheet_name="lotto-1"):
                     df = pd.read_excel(xls, sheet_name=sheet_name, header=None)
                 else:
                     # 시트가 없으면 첫 번째 시트를 기본값으로 로드
+                    # 요청한 시트가 없을 경우 첫 번째 시트 사용
                     df = pd.read_excel(xls, sheet_name=0, header=None)
             except Exception as e:
                 print(f"XLSM 로드 오류 ({target_xlsm}): {e}")
+                st.error(f"엑셀 파일 읽기 오류 ({sheet_name}): {e}")
 
         # 2. XLSM 로드 실패 시 기존 CSV 파일 확인 (인코딩별 시도)
         if df is None:
@@ -1082,7 +1084,7 @@ def render_sidebar():
     """ Renders the content for the left sidebar. """
     st.markdown("""
         <div style="background: rgba(255,0,0,0.2); padding: 5px; border-radius: 5px; margin-bottom: 10px; font-size: 10px; color: #ffcccc; text-align: center;">
-            v3.0 (GitHub 동기화 버전 - 시트 역할 분리 완료)
+            v3.2 (GitHub: jinyounggil/streamlit/appweb)
         </div>
     """, unsafe_allow_html=True)
 
