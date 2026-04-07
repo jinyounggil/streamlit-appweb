@@ -23,11 +23,8 @@ import platform
 st.set_page_config(layout="wide", page_title="로또킹 분석", initial_sidebar_state="collapsed")
 
 # Query-Parameter를 이용한 탭 관리
-if 'show_tab' not in st.session_state:
-    try:
-        st.session_state['show_tab'] = st.query_params.get('tab')
-    except:
-        st.session_state['show_tab'] = None
+query_tab = st.query_params.get('tab')
+st.session_state['show_tab'] = query_tab
 
 # 세션 상태 초기화
 if 'subscribe_count' not in st.session_state:
@@ -126,28 +123,48 @@ def generate_lotto_balls_html(numbers, size, font_size, margin="2px", use_flex=F
 
 
 @st.cache_data
-def load_lotto_data():
+def load_lotto_data(sheet_name="lotto-1"):
     """
-    과거 로또 당첨 데이터를 CSV 파일에서 로드하고 전처리합니다. 오류 발생 시 None을 반환합니다.
+    pd flame data-3.xlsm 파일에서 지정된 시트(lotto-1 또는 lotto-2)를 로드합니다.
     데이터는 캐시되어 앱 성능을 향상시킵니다.
     """
     try:
-        # 인코딩 호환성을 위해 여러 인코딩 시도
-        encodings = ['utf-8-sig', 'cp949', 'euc-kr']
         df = None
-        for enc in encodings:
+
+        # 1. pd flame data-3.xlsm 확인 (역할에 따른 시트 로드)
+        target_xlsm = "pd flame data-3.xlsm"
+        if os.path.exists(target_xlsm):
             try:
-                df = pd.read_csv("past_results.csv", header=None, encoding=enc)
-                break
-            except UnicodeDecodeError:
-                continue
+                xls = pd.ExcelFile(target_xlsm)
+                # 요청된 시트가 존재할 경우에만 로드
+                if sheet_name in xls.sheet_names:
+                    df = pd.read_excel(xls, sheet_name=sheet_name, header=None)
+                else:
+                    # 시트가 없으면 첫 번째 시트를 기본값으로 로드
+                    df = pd.read_excel(xls, sheet_name=0, header=None)
+            except Exception as e:
+                print(f"XLSM 로드 오류 ({target_xlsm}): {e}")
+
+        # 2. XLSM 로드 실패 시 기존 CSV 파일 확인 (인코딩별 시도)
+        if df is None:
+            # 인코딩 호환성을 위해 여러 인코딩 시도
+            encodings = ['utf-8-sig', 'cp949', 'euc-kr']
+            for enc in encodings:
+                try:
+                    df = pd.read_csv("past_results.csv", header=None, encoding=enc)
+                    break
+                except Exception:
+                    continue
         
         if df is None:
-            # 모든 인코딩 실패 시 기본값으로 시도 (에러 발생 유도)
-            df = pd.read_csv("past_results.csv", header=None, encoding='utf-8-sig')
-            
+            return None
+
+        df = df.iloc[:, :7] # 필요한 7개 컬럼만 선택
         df.columns = ["회차", "번호1", "번호2", "번호3", "번호4", "번호5", "번호6"]
-        df["회차_int"] = df["회차"].str.replace("회차", "").astype(int)
+        # 회차 컬럼에서 숫자만 추출 (깨진 문자 대응)
+        df["회차_int"] = df["회차"].astype(str).str.extract(r'(\d+)')[0].fillna(0).astype(int)
+        # 중복 제거 (여러 시트 병합 시 발생 가능)
+        df = df.drop_duplicates(subset=["회차_int"])
         df = df.sort_values("회차_int", ascending=False)
         return df
     except (FileNotFoundError, Exception) as e:
@@ -487,7 +504,8 @@ def tab4_content():
   
   st.markdown("<h2 style='color:lime;'>🧠 AI 통합 추천</h2>", unsafe_allow_html=True)
 
-  past_results = load_lotto_data()
+  # AI 분석 및 기본 데이터는 lotto-1 시트 사용
+  past_results = load_lotto_data(sheet_name="lotto-1")
   if past_results is None:
       st.error("`past_results.csv` 파일을 찾을 수 없거나 데이터가 손상되었습니다. 앱을 재시작하거나 데이터를 확인해주세요.")
       return
@@ -834,7 +852,8 @@ def tab5_content():
   </div>
   """, unsafe_allow_html=True)
 
-  past_results = load_lotto_data()
+  # 당첨 확인은 lotto-1 데이터 기준
+  past_results = load_lotto_data(sheet_name="lotto-1")
   if past_results is None:
       st.error("`past_results.csv` 파일을 찾을 수 없거나 데이터가 손상되었습니다. 앱을 재시작하거나 데이터를 확인해주세요.")
       return
@@ -1013,14 +1032,14 @@ def tab5_content():
 def render_header():
     """ Renders the custom top header for the app. """
     try:
-        past_results = load_lotto_data()
+        past_results = load_lotto_data(sheet_name="lotto-1")
         if past_results is not None:
             # 자동으로 다음 회차 계산
             next_draw_round = past_results["회차_int"].max() + 1
         else:
-            next_draw_round = 1209  # 파일 로드 실패 시 기본값
+            next_draw_round = 1210  # 파일 로드 실패 시 기본값
     except Exception:
-        next_draw_round = 1209  # 파일 로드 실패 시 기본값
+        next_draw_round = 1210  # 파일 로드 실패 시 기본값
 
     # '좋아요' 링크 생성
     try:
@@ -1051,7 +1070,7 @@ def render_header():
                 <a href="{subscribe_url}" target="_self" style="{sub_style}">{sub_label}</a>
             </div>
             <div class="header-center">
-                😘 로또킹과 더 높은 곳을 향하여 🚀
+                <a href="/" target="_self" style="text-decoration: none; color: white;">😘 로또킹과 더 높은 곳을 향하여 🚀</a>
             </div>
             <div class="header-right">
                 추첨회차: 제 {next_draw_round}회 (자동)
@@ -1062,7 +1081,15 @@ def render_header():
 def render_sidebar():
     """ Renders the content for the left sidebar. """
     st.markdown("""
-        <div class="logo">👑 로또킹</div>
+        <div style="background: rgba(255,0,0,0.2); padding: 5px; border-radius: 5px; margin-bottom: 10px; font-size: 10px; color: #ffcccc; text-align: center;">
+            v3.0 (GitHub 동기화 버전 - 시트 역할 분리 완료)
+        </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("""
+        <div class="logo">
+            <a href="/" target="_self" style="text-decoration: none; color: white;">👑 로또킹</a>
+        </div>
         <div class="nav-cards-container">
             <div class="nav-card">
                 <a href="/?tab=tab1" target="_self">
@@ -1097,15 +1124,24 @@ def render_sidebar():
         </div>
     """, unsafe_allow_html=True)
 
-
+    if st.sidebar.button("⚙️ 시스템 전체 초기화", help="모든 캐시와 설정을 처음 상태로 되돌립니다."):
+        st.cache_data.clear()
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.query_params.clear()
+        st.rerun()
 
 def render_main_content():
     """ Renders the content for the right main area. """
     show_tab = st.session_state.get('show_tab')
     if show_tab:
-        if st.button("🏠 메인 화면으로", key="btn_return_home"):
+        if st.button("🏠 처음으로 (홈)", key="btn_return_home"):
+            # 1. 쿼리 파라미터 삭제
             st.query_params.clear()
-            st.session_state['show_tab'] = None
+            # 2. 모든 세션 상태 삭제
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            # 3. 앱 재실행
             st.rerun()
         if show_tab == 'tab1': tab1_content()
         elif show_tab == 'tab2': tab2_content()
@@ -1201,14 +1237,9 @@ def render_footer():
 thumb_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd()
 bg_image_b64 = None
 # README에 명시된 lottoking1.jpg를 우선적으로 찾도록 수정
-image_path = os.path.join(thumb_dir, 'lottoking2.jpeg')
+image_path = os.path.join(thumb_dir, 'lottoking2.jpeg') # 특정 파일로 고정
 if not os.path.exists(image_path):
-    # 대체 이미지 검색
-    thumb_candidates = [f for f in os.listdir(thumb_dir) if f.startswith('lottoking') and f.lower().endswith(('.jpg', '.jpeg', '.png'))]
-    if thumb_candidates:
-        image_path = os.path.join(thumb_dir, random.choice(thumb_candidates))
-    else:
-        image_path = None
+    image_path = None
 
 if image_path:
     bg_image_b64 = get_image_as_base64(image_path)

@@ -1,49 +1,6 @@
-# Python
 __pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-env/
-venv/
-.venv/
-ENV/
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# IDEs
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS
+.streamlit/
+*.pyc
+~$*.xlsx
+~$*.xlsm
 .DS_Store
-Thumbs.db
-
-# Database
-*.db
-*.sqlite
-
-# Excel files
-*.xlsm
-*.xlsx
-*.xls
-
-# Temporary files
-*.log
-*.tmp
