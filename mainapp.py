@@ -46,36 +46,21 @@ try:
         
     elif action == "like":
         st.session_state.like_count += 1
-        try:
-            st.balloons() # 좋아요 클릭 시 풍선 효과
-        except:
-            pass # 효과 실패해도 로직은 계속 진행
-        
+        st.balloons()
         if "action" in st.query_params:
             del st.query_params["action"]
+        st.rerun() # 상태 반영을 위한 재실행
     
     elif action == "subscribe":
         st.session_state['is_subscribed'] = not st.session_state['is_subscribed']
-        if st.session_state['is_subscribed']:
-            try:
-                st.snow() # 구독 클릭 시 눈내림 효과
-                st.toast("🎉 구독 감사합니다! 매주 행운의 번호를 받아보세요! 🎁")
-                st.markdown("<script>localStorage.setItem('lotto_subscribed', 'true');</script>", unsafe_allow_html=True)
-            except:
-                pass
-        else:
-            try:
-                st.toast("구독이 취소되었습니다. 다음에 또 만나요! 👋")
-                st.markdown("<script>localStorage.removeItem('lotto_subscribed');</script>", unsafe_allow_html=True)
-            except:
-                pass
-        
         if "action" in st.query_params:
             del st.query_params["action"]
-
-except Exception:
-    # st.query_params가 지원되지 않는 환경 등 예외 처리
-    pass
+        st.rerun() # 상태 반영을 위한 재실행
+except Exception as e:
+    # Streamlit의 화면 전환(Rerun) 신호는 예외(Exception)로 처리되므로 가로채지 않고 통과시켜야 합니다.
+    if type(e).__name__ == 'RerunException' or e.__class__.__name__ == 'RerunException':
+        raise e
+    st.error(f"시스템 오류가 발생했습니다: {e}")
 
 # 브라우저 로컬 스토리지 확인 및 상태 복원 스크립트
 if not st.session_state['is_subscribed']:
@@ -136,12 +121,11 @@ def load_lotto_data(sheet_name="lotto-1"):
         if os.path.exists(target_xlsm):
             try:
                 xls = pd.ExcelFile(target_xlsm)
-                # 요청된 시트가 존재할 경우에만 로드
                 if sheet_name in xls.sheet_names:
-                    df = pd.read_excel(xls, sheet_name=sheet_name, header=None)
+                    # lotto-2 시트는 21행(인덱스 20)이 헤더
+                    header_idx = 20 if sheet_name == "lotto-2" else None
+                    df = pd.read_excel(xls, sheet_name=sheet_name, header=header_idx)
                 else:
-                    # 시트가 없으면 첫 번째 시트를 기본값으로 로드
-                    # 요청한 시트가 없을 경우 첫 번째 시트 사용
                     df = pd.read_excel(xls, sheet_name=0, header=None)
             except Exception as e:
                 print(f"XLSM 로드 오류 ({target_xlsm}): {e}")
@@ -161,14 +145,17 @@ def load_lotto_data(sheet_name="lotto-1"):
         if df is None:
             return None
 
-        df = df.iloc[:, :7] # 필요한 7개 컬럼만 선택
-        df.columns = ["회차", "번호1", "번호2", "번호3", "번호4", "번호5", "번호6"]
-        # 회차 컬럼에서 숫자만 추출 (깨진 문자 대응)
-        df["회차_int"] = df["회차"].astype(str).str.extract(r'(\d+)')[0].fillna(0).astype(int)
-        # 중복 제거 (여러 시트 병합 시 발생 가능)
-        df = df.drop_duplicates(subset=["회차_int"])
-        df = df.sort_values("회차_int", ascending=False)
-        return df
+        # 데이터 컬럼 수가 최소 7개 이상인지 확인 (회차 + 번호 6개)
+        if df.shape[1] >= 7:
+            df = df.iloc[:, :7]
+            df.columns = ["회차", "번호1", "번호2", "번호3", "번호4", "번호5", "번호6"]
+            df["회차_int"] = df["회차"].astype(str).str.extract(r'(\d+)')[0].fillna(0).astype(int)
+            df = df.drop_duplicates(subset=["회차_int"])
+            df = df.sort_values("회차_int", ascending=False)
+            return df
+        else:
+            print(f"[{sheet_name}] 데이터 형식이 올바르지 않습니다 (열 개수 부족)")
+            return None
     except (FileNotFoundError, Exception) as e:
         # st.error() 호출을 제거하여 앱 시작 시 레이아웃이 깨지는 것을 방지합니다.
         # 오류 처리는 이 함수를 호출하는 각 UI 섹션에서 담당합니다.
@@ -256,7 +243,8 @@ def update_lotto_data_online():
                     break
                 except UnicodeDecodeError:
                     continue
-            df_old_int = df_old[0].str.replace("회차", "").astype(int)
+            # 숫자만 추출하여 안전하게 비교 (깨진 문자 대응)
+            df_old_int = df_old[0].astype(str).str.extract(r'(\d+)')[0].fillna(0).astype(int)
             latest_old_round = df_old_int.max()
         except Exception:
             latest_old_round = 0
@@ -265,7 +253,7 @@ def update_lotto_data_online():
         return True, f"이미 최신 데이터입니다. (현재 {latest_old_round}회차)"
 
     df_new['회차'] = df_new['회차'].astype(str) + "회차"
-    df_to_save = df_new.sort_values(by='회차', key=lambda x: x.str.replace('회차','').astype(int), ascending=True)
+    df_to_save = df_new.sort_values(by='회차', key=lambda x: x.astype(str).str.extract(r'(\d+)')[0].astype(int), ascending=True)
 
     try:
         df_to_save.to_csv(file_path, index=False, header=False, encoding='utf-8-sig')
@@ -1084,7 +1072,7 @@ def render_sidebar():
     """ Renders the content for the left sidebar. """
     st.markdown("""
         <div style="background: rgba(255,0,0,0.2); padding: 5px; border-radius: 5px; margin-bottom: 10px; font-size: 10px; color: #ffcccc; text-align: center;">
-            v3.2 (GitHub: jinyounggil/streamlit/appweb)
+            v3.6 (GitHub Deployment Optimized)
         </div>
     """, unsafe_allow_html=True)
 
@@ -1138,12 +1126,12 @@ def render_main_content():
     show_tab = st.session_state.get('show_tab')
     if show_tab:
         if st.button("🏠 처음으로 (홈)", key="btn_return_home"):
-            # 1. 쿼리 파라미터 삭제
-            st.query_params.clear()
-            # 2. 모든 세션 상태 삭제
+            # 1. 모든 세션 상태 삭제
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
-            # 3. 앱 재실행
+            # 2. 쿼리 파라미터 삭제
+            st.query_params.clear()
+            # 3. 앱 재실행 (메인으로 리다이렉트)
             st.rerun()
         if show_tab == 'tab1': tab1_content()
         elif show_tab == 'tab2': tab2_content()
