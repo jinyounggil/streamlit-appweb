@@ -23,9 +23,7 @@ import platform
 st.set_page_config(layout="wide", page_title="로또킹 분석", initial_sidebar_state="collapsed")
 
 # Query-Parameter를 이용한 탭 관리
-if 'tab' in st.query_params:
-    query_tab = st.query_params.get('tab')
-    st.session_state['show_tab'] = query_tab
+st.session_state['show_tab'] = st.query_params.get('tab')
 
 # 세션 상태 초기화
 if 'subscribe_count' not in st.session_state:
@@ -38,29 +36,26 @@ if 'is_subscribed' not in st.session_state:
 # '좋아요' 및 '구독' 클릭 처리 (st.rerun()은 예외 처리 외부에서 실행하는 것이 안전합니다)
 action = st.query_params.get("action")
 if action:
+    do_rerun = False
     try:
         if action == "restore_subscribe":
             st.session_state['is_subscribed'] = True
-            del st.query_params["action"]
-            st.rerun()
-            
+            do_rerun = True
         elif action == "like":
             st.session_state.like_count += 1
             st.balloons()
-            del st.query_params["action"]
-            st.rerun()
-        
+            do_rerun = True
         elif action == "subscribe":
             st.session_state['is_subscribed'] = not st.session_state['is_subscribed']
+            do_rerun = True
+        
+        if do_rerun:
             del st.query_params["action"]
-            st.rerun()
     except Exception as e:
-        # Streamlit의 RerunException은 시스템 오류로 처리하면 안 됩니다.
-        err_name = type(e).__name__
-        if err_name == 'RerunException' or 'RerunException' in str(type(e)):
-            raise e 
-        else:
-            st.error(f"시스템 오류가 발생했습니다: {e}")
+        st.error(f"시스템 오류가 발생했습니다: {e}")
+    
+    if do_rerun:
+        st.rerun()
 
 # 브라우저 로컬 스토리지 확인 및 상태 복원 스크립트
 if not st.session_state['is_subscribed']:
