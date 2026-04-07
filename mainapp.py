@@ -43,14 +43,13 @@ if action:
             do_rerun = True
         elif action == "like":
             st.session_state.like_count += 1
-            st.balloons()
             do_rerun = True
         elif action == "subscribe":
             st.session_state['is_subscribed'] = not st.session_state['is_subscribed']
             do_rerun = True
         
         if do_rerun:
-            del st.query_params["action"]
+            st.query_params.clear() # 모든 액션 처리 후 파라미터 청소
     except Exception as e:
         st.error(f"시스템 오류가 발생했습니다: {e}")
     
@@ -748,7 +747,7 @@ def tab4_content():
   col1, col2 = st.columns([1, 1])
   
   with col1:
-    if st.button("🎲 AI 추천 번호 생성", key="ai_gen_btn", width="stretch"):
+    if st.button("🎲 AI 추천 번호 생성", key="ai_gen_btn", use_container_width=True):
       try:
         st.session_state['ai_combinations'] = generate_combinations()
         st.session_state['ai_show_result'] = True
@@ -757,7 +756,7 @@ def tab4_content():
         st.error(f"번호 생성 중 오류가 발생했습니다: {e}")
   
   with col2:
-    if st.button("🗑️ 초기화", key="ai_clear_btn", width="stretch"):
+    if st.button("🗑️ 초기화", key="ai_clear_btn", use_container_width=True):
       st.session_state['ai_combinations'] = []
       st.session_state['ai_show_result'] = False
   
