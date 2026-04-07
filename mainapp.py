@@ -374,7 +374,7 @@ def tab2_content():
     day = cols[2].number_input("일",1,31,28,key="jx_day2")
     hour = cols[3].number_input("시",0,23,16,key="jx_hour2")
     
-    if st.button("수동 방위 12수 2조합 추천 🎲", key="jx_manual_btn2"):
+    if st.button("수동 방위 12수 2조합 추천 \U0001f3b2", key="jx_manual_btn2"):
       all_combinations = []
       for i in range(2):
         seed = year+month+day+hour+i*1000
@@ -480,33 +480,22 @@ def tab3_content():
   if not_appeared:
     st.markdown(f"<div style='color:white; margin-top:10px;'><b>미출현 번호</b>: {balls(not_appeared)}</div>", unsafe_allow_html=True)
 
-  # 최다 빈도 6수 추천 기능
+  # 최다 빈도 추천 기능
   st.markdown("---")
-  if st.button("🏆 최다 빈도 6수 조합 추천", key="btn_stat_rec"):
-      if len(hot_nums) >= 6:
-          rec_nums = sorted(hot_nums[:6])
-          st.markdown(f"""
-          <div style='background-color:rgba(255,255,255,0.1); border-radius:15px; padding:20px; text-align:center; margin-top:15px; border:1px solid rgba(255,255,255,0.2);'>
-              <h3 style='color:#ffd700; margin-bottom:15px;'>👑 통계 기반 강력 추천 (Top 6)</h3>
-              <div style='display:flex; justify-content:center; gap:10px; flex-wrap:wrap;'>
-                  {generate_lotto_balls_html(rec_nums, size=60, font_size=24, use_flex=True)}
-  if st.button("🏆 최다 빈도 12수 2조합 추천", key="btn_stat_rec"):
+  if st.button("\U0001f3c6 최다 빈도 12수 2조합 추천", key="btn_stat_rec_12"):
       valid_hot = [n for n in hot_nums if n not in excluded_nums]
       if len(valid_hot) >= 12:
           for i in range(2):
-              rec_nums = sorted(valid_hot[i*6:(i+1)*6] + random.sample([n for n in range(1,46) if n not in valid_hot and n not in excluded_nums], 6))
+              current_set = valid_hot[i*6:(i+1)*6]
+              fillers = random.sample([n for n in range(1,46) if n not in current_set and n not in excluded_nums], 6)
+              rec_nums = sorted(current_set + fillers)
               st.markdown(f"""
               <div style='background-color:rgba(255,255,255,0.1); border-radius:15px; padding:20px; text-align:center; margin-top:15px; border:1px solid rgba(255,255,255,0.2);'>
-                  <h3 style='color:#ffd700; margin-bottom:15px;'>👑 통계 기반 추천 조합 {i+1}</h3>
+                  <h3 style='color:#ffd700; margin-bottom:15px;'>\U0001f451 통계 기반 추천 조합 {i+1}</h3>
                   <div style='display:flex; justify-content:center; gap:10px; flex-wrap:wrap;'>
                       {generate_lotto_balls_html(rec_nums, size=50, font_size=20, use_flex=True)}
                   </div>
               </div>
-              <p style='color:#ddd; margin-top:15px; font-size:14px;'>
-                  선택하신 기간 동안 가장 많이 당첨된 번호 6개입니다.
-              </p>
-          </div>
-          """, unsafe_allow_html=True)
               """, unsafe_allow_html=True)
       else:
           st.warning("데이터가 부족하여 추천할 수 없습니다.")
@@ -706,6 +695,7 @@ def tab4_content():
       if odd_count < 4 or odd_count > 8:
         continue
       
+      # 구간 분포 검증 (5개 구간에 골고루 분포)
       zones = [0,0,0,0,0]
       for n in numbers:
         if n <= 10: zones[0] += 1
@@ -714,15 +704,21 @@ def tab4_content():
         elif n <= 40: zones[3] += 1
         else: zones[4] += 1
       
+      # 특정 구간에 4개 이상 몰리면 제외
+      if max(zones) > 3:
       if max(zones) > 5:
         continue
       
+      # 번호 합계 검증 (당첨 번호 평균 합계: 115~145)
       # 번호 합계 검증 (12수 기준 합계: 200~350)
       total_sum = sum(numbers)
+      if total_sum < 100 or total_sum > 160:
       if total_sum < 200 or total_sum > 350:
         continue
       
       numbers.sort()
+      
+      # 중복 조합 방지
       if numbers not in combinations:
         combinations.append(numbers)
     
@@ -1095,7 +1091,7 @@ def render_sidebar():
     """ Renders the content for the left sidebar. """
     st.markdown("""
         <div style="background: rgba(0,255,0,0.15); padding: 5px; border-radius: 5px; margin-bottom: 10px; font-size: 10px; color: #ccffcc; text-align: center; border: 1px solid rgba(0,255,0,0.2);">
-            v4.2 (12수 2조합 최적화 및 코드 정리 완료) 🚀
+            v4.5 (Syntax Error Fix & Logic Optimization) \U0001f680
         </div>
     """, unsafe_allow_html=True)
 
