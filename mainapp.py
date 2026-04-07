@@ -34,33 +34,30 @@ if 'like_count' not in st.session_state:
 if 'is_subscribed' not in st.session_state:
     st.session_state['is_subscribed'] = False
 
-# '좋아요' 및 '구독' 클릭 처리 (인터랙티브 효과 추가)
-try:
-    action = st.query_params.get("action")
-    
-    if action == "restore_subscribe":
-        st.session_state['is_subscribed'] = True
-        if "action" in st.query_params:
+# '좋아요' 및 '구독' 클릭 처리 (st.rerun()은 예외 처리 외부에서 실행하는 것이 안전합니다)
+action = st.query_params.get("action")
+if action:
+    try:
+        if action == "restore_subscribe":
+            st.session_state['is_subscribed'] = True
             del st.query_params["action"]
-        st.rerun()
+            st.rerun()
+            
+        elif action == "like":
+            st.session_state.like_count += 1
+            st.balloons()
+            del st.query_params["action"]
+            st.rerun()
         
-    elif action == "like":
-        st.session_state.like_count += 1
-        st.balloons()
-        if "action" in st.query_params:
+        elif action == "subscribe":
+            st.session_state['is_subscribed'] = not st.session_state['is_subscribed']
             del st.query_params["action"]
-        st.rerun() # 상태 반영을 위한 재실행
-    
-    elif action == "subscribe":
-        st.session_state['is_subscribed'] = not st.session_state['is_subscribed']
-        if "action" in st.query_params:
-            del st.query_params["action"]
-        st.rerun() # 상태 반영을 위한 재실행
-except Exception as e:
-    # Streamlit의 화면 전환(Rerun) 신호는 예외(Exception)로 처리되므로 가로채지 않고 통과시켜야 합니다.
-    if type(e).__name__ == 'RerunException' or e.__class__.__name__ == 'RerunException':
-        raise e
-    st.error(f"시스템 오류가 발생했습니다: {e}")
+            st.rerun()
+    except Exception as e:
+        # Streamlit의 화면 전환(Rerun) 신호는 예외(Exception)로 처리되므로 가로채지 않고 통과시켜야 합니다.
+        if type(e).__name__ == 'RerunException' or e.__class__.__name__ == 'RerunException':
+            raise e
+        st.error(f"시스템 오류가 발생했습니다: {e}")
 
 # 브라우저 로컬 스토리지 확인 및 상태 복원 스크립트
 if not st.session_state['is_subscribed']:
@@ -157,8 +154,8 @@ def load_lotto_data(sheet_name="lotto-1"):
         if df is None:
             return None
 
-        # 데이터 컬럼 수가 최소 7개 이상인지 확인 (회차 + 번호 6개)
-        if df.shape[1] >= 7:
+        # 데이터 컬럼 수가 최소 7개 이상인지 확인 (회차 + 번호 6개). 헤더 설정에 따라 달라질 수 있음
+        if len(df.columns) >= 7:
             df = df.iloc[:, :7]
             df.columns = ["회차", "번호1", "번호2", "번호3", "번호4", "번호5", "번호6"]
             df["회차_int"] = df["회차"].astype(str).str.extract(r'(\d+)')[0].fillna(0).astype(int)
@@ -829,10 +826,14 @@ def tab4_content():
                   pillow_ball_color = color_map.get(ball_color_name, (128, 128, 128))
                   text_color = (0, 0, 0) if ball_color_name == "gold" else (255, 255, 255)
 
-                  draw.ellipse(box, fill=pillow_ball_color, outline=(200,200,200), width=1)
+                  draw.ellipse(tuple(box), fill=pillow_ball_color, outline=(200,200,200), width=1)
 
                   num_str = str(num)
-                  bbox = draw.textbbox((0, 0), num_str, font=ball_font)
+                  # 폰트 객체가 textbbox를 지원하지 않는 경우(DefaultFont)에 대한 대비
+                  if hasattr(ball_font, 'getbbox'):
+                      bbox = draw.textbbox((0, 0), num_str, font=ball_font)
+                  else:
+                      bbox = (0, 0, 15, 15) # 기본 폰트용 대체값
                   text_width, text_height = bbox[2] - bbox[0], bbox[3] - bbox[1]
                   text_x = x_pos + (ball_size - text_width) / 2
                   text_y = y_pos + title_v_offset + (ball_size - text_height) / 2 - 4
@@ -1181,10 +1182,9 @@ def render_main_content():
     if show_tab:
         if st.button("🏠 처음으로 (홈)", key="btn_return_home"):
             # 1. 모든 세션 상태 삭제
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
+            # 핵심적인 상태는 유지하고 싶을 수 있으므로 쿼리 파라미터만 정리하는 것이 깔끔할 수 있습니다.
             # 2. 쿼리 파라미터 삭제
-            st.query_params.clear()
+            st.query_params.from_dict({})
             # 3. 앱 재실행 (메인으로 리다이렉트)
             st.rerun()
         if show_tab == 'tab1': tab1_content()
