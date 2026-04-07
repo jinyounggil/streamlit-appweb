@@ -355,7 +355,11 @@ def tab2_content():
     if st.button("오늘의 방위 12수 2조합 추천 🎲", key="jx_auto_btn2"):
       all_combinations = []
       for i in range(2):
-        numbers = [random.choice(region) for region in regions.values() if random.choice(region) not in excluded_nums]
+        numbers = []
+        for region in regions.values():
+            val = random.choice(region)
+            if val not in excluded_nums:
+                numbers.append(val)
         while len(numbers) < 12:
           # 중복 방지: 랜덤 추가
           n = random.randint(1, 45)
@@ -379,7 +383,11 @@ def tab2_content():
       for i in range(2):
         seed = year+month+day+hour+i*1000
         rng = random.Random(seed)
-        numbers = [rng.choice(region) for region in regions.values() if rng.choice(region) not in excluded_nums]
+        numbers = []
+        for region in regions.values():
+            val = rng.choice(region)
+            if val not in excluded_nums:
+                numbers.append(val)
         while len(numbers) < 12:
           n = rng.randint(1, 45)
           if n not in numbers and n not in excluded_nums:
@@ -557,7 +565,10 @@ def tab4_content():
       odd_count = sum(1 for n in nums if n % 2 == 1)
       odd_ratios.append(odd_count)
     
-    avg_odd = sum(odd_ratios) / len(odd_ratios)
+    if len(odd_ratios) > 0:
+        avg_odd = sum(odd_ratios) / len(odd_ratios)
+    else:
+        avg_odd = 3
     
     has_data = True
   except Exception:
@@ -697,11 +708,16 @@ def tab4_content():
       # 구간 분포 검증 (5개 구간에 골고루 분포)
       zones = [0,0,0,0,0]
       for n in numbers:
-        if n <= 10: zones[0] += 1
-        elif n <= 20: zones[1] += 1
-        elif n <= 30: zones[2] += 1
-        elif n <= 40: zones[3] += 1
-        else: zones[4] += 1
+        if n <= 10:
+          zones[0] += 1
+        elif n <= 20:
+          zones[1] += 1
+        elif n <= 30:
+          zones[2] += 1
+        elif n <= 40:
+          zones[3] += 1
+        else:
+          zones[4] += 1
       
       # 특정 구간 몰림 방지 (12수 기준 5개 초과 몰림 제외)
       if max(zones) > 5:
@@ -1088,7 +1104,7 @@ def render_sidebar():
     """ Renders the content for the left sidebar. """
     st.markdown("""
         <div style="background: rgba(0,255,0,0.15); padding: 5px; border-radius: 5px; margin-bottom: 10px; font-size: 10px; color: #ccffcc; text-align: center; border: 1px solid rgba(0,255,0,0.2);">
-            v4.9 (Final Indentation & Fallback Logic Fixed) \U0001f680
+            v5.0 (Final Stable Version) \U0001f680
         </div>
     """, unsafe_allow_html=True)
 
