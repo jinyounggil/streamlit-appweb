@@ -614,8 +614,7 @@ def tab4_content():
   with st.expander("⚙️ 고급 설정 (제외수 / 고정수)"):
     col_ex, col_fix = st.columns(2)
     with col_ex:
-      excluded_numbers = st.multiselect("🚫 제외할 번호", list(range(1, 46)), key="ai_exclude_nums")
-      manual_excluded = st.multiselect("🚫 추가 제외 번호", list(range(1, 46)), key="ai_exclude_nums")
+      manual_excluded = st.multiselect("🚫 추가 제외 번호", list(range(1, 46)), key="ai_manual_exclude_nums")
       all_excluded = file_excluded.union(set(manual_excluded))
     with col_fix:
       fixed_numbers = st.multiselect("📌 고정할 번호 (최대 5개)", list(range(1, 46)), key="ai_fixed_nums")
@@ -1091,7 +1090,7 @@ def render_sidebar():
     """ Renders the content for the left sidebar. """
     st.markdown("""
         <div style="background: rgba(0,255,0,0.15); padding: 5px; border-radius: 5px; margin-bottom: 10px; font-size: 10px; color: #ccffcc; text-align: center; border: 1px solid rgba(0,255,0,0.2);">
-            v4.5 (Syntax Error Fix & Logic Optimization) \U0001f680
+            v4.7 (Indentation Error Fixed) \U0001f680
         </div>
     """, unsafe_allow_html=True)
 
