@@ -471,15 +471,15 @@ def tab3_content():
 
   # hot/mid/cold num 표시 (추천을 위해 분석 범위를 넓힘)
   freq_sorted = freq.sort_values(ascending=False)
-  hot_nums_display = freq_sorted.head(6).index.tolist() # 화면 표시용 Top 6
-  hot_nums_all = freq_sorted.head(20).index.tolist()    # 추천 로직용 Top 20
+  hot_nums = freq_sorted.head(6).index.tolist() # 화면 표시용 Top 6
+  hot_nums_all = freq_sorted.head(20).index.tolist() # 추천 로직용 Top 20
   cold_nums = freq_sorted.tail(6).index.tolist()
   mid_start = len(freq_sorted)//2 - 3
   mid_nums = freq_sorted.iloc[mid_start:mid_start+6].index.tolist() if len(freq_sorted) >= 12 else []
   def balls(nums):
     return generate_lotto_balls_html(nums, size=40, font_size=18, margin="4px")
   
-  st.markdown(f"<div style='color:white; margin-bottom:5px;'><b>Hot Num</b> (최다 출현): {balls(sorted(hot_nums_display))}</div>", unsafe_allow_html=True)
+  st.markdown(f"<div style='color:white; margin-bottom:5px;'><b>Hot Num</b> (최다 출현): {balls(sorted(hot_nums))}</div>", unsafe_allow_html=True)
   if mid_nums:
     st.markdown(f"<div style='color:white; margin-bottom:5px;'><b>Mid Num</b> (중간 출현): {balls(sorted(mid_nums))}</div>", unsafe_allow_html=True)
   st.markdown(f"<div style='color:white; margin-bottom:5px;'><b>Cold Num</b> (최소 출현): {balls(sorted(cold_nums))}</div>", unsafe_allow_html=True)
@@ -1107,7 +1107,7 @@ def render_sidebar():
     """ Renders the content for the left sidebar. """
     st.markdown("""
         <div style="background: rgba(0,255,0,0.15); padding: 5px; border-radius: 5px; margin-bottom: 10px; font-size: 10px; color: #ccffcc; text-align: center; border: 1px solid rgba(0,255,0,0.2);">
-            v5.1 (Fixed NameError & Stat Logic) \U0001f680
+            v5.3 (BGM Player Fixed & NameError Resolved) 🚀
         </div>
     """, unsafe_allow_html=True)
 
@@ -1148,6 +1148,25 @@ def render_sidebar():
             </div>
         </div>
     """, unsafe_allow_html=True)
+
+    # --- BGM 플레이어 추가 ---
+    st.markdown("---")
+    st.write("🎵 **배경음악 설정**")
+    
+    # 현재 디렉토리에서 모든 mp3 파일 목록을 가져옵니다.
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    mp3_files = [f for f in os.listdir(current_dir) if f.lower().endswith('.mp3')]
+    
+    if mp3_files:
+        st.write("🎶 **곡 선택**")
+        song_names = [os.path.splitext(f)[0] for f in mp3_files]
+        selected_song_name = st.selectbox("곡을 선택하세요", song_names, label_visibility="collapsed")
+        
+        selected_file = mp3_files[song_names.index(selected_song_name)]
+        bgm_path = os.path.join(current_dir, selected_file)
+        st.audio(bgm_path, format="audio/mp3", loop=True)
+    else:
+        st.caption("💡 폴더에 `.mp3` 파일을 넣으면 음악을 들을 수 있습니다.")
 
     if st.sidebar.button("⚙️ 시스템 전체 초기화", help="모든 캐시와 설정을 처음 상태로 되돌립니다."):
         st.cache_data.clear()
