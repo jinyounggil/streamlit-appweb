@@ -703,16 +703,12 @@ def tab4_content():
         elif n <= 40: zones[3] += 1
         else: zones[4] += 1
       
-      # 특정 구간에 4개 이상 몰리면 제외
-      if max(zones) > 3:
       # 특정 구간 몰림 방지 (12수 기준 5개 초과 몰림 제외)
       if max(zones) > 5:
         continue
       
-      # 번호 합계 검증 (당첨 번호 평균 합계: 115~145)
       # 번호 합계 검증 (12수 기준 합계: 200~350)
       total_sum = sum(numbers)
-      if total_sum < 100 or total_sum > 160:
       if total_sum < 200 or total_sum > 350:
         continue
       
@@ -727,6 +723,7 @@ def tab4_content():
       if len(available_fallback) + len(real_fixed) < 12:
         break
       
+      needed = 12 - len(real_fixed)
       nums = sorted(real_fixed + random.sample(available_fallback, needed))
       if nums not in combinations:
         combinations.append(nums)
@@ -1091,8 +1088,7 @@ def render_sidebar():
     """ Renders the content for the left sidebar. """
     st.markdown("""
         <div style="background: rgba(0,255,0,0.15); padding: 5px; border-radius: 5px; margin-bottom: 10px; font-size: 10px; color: #ccffcc; text-align: center; border: 1px solid rgba(0,255,0,0.2);">
-            v4.7 (Indentation Error Fixed) \U0001f680
-            v4.8 (Logic Cleaning & Indentation Fixed) \U0001f680
+            v4.9 (Final Indentation & Fallback Logic Fixed) \U0001f680
         </div>
     """, unsafe_allow_html=True)
 
