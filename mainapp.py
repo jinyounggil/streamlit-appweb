@@ -23,8 +23,9 @@ import platform
 st.set_page_config(layout="wide", page_title="로또킹 분석", initial_sidebar_state="collapsed")
 
 # Query-Parameter를 이용한 탭 관리
-query_tab = st.query_params.get('tab')
-st.session_state['show_tab'] = query_tab
+if 'tab' in st.query_params:
+    query_tab = st.query_params.get('tab')
+    st.session_state['show_tab'] = query_tab
 
 # 세션 상태 초기화
 if 'subscribe_count' not in st.session_state:
@@ -54,10 +55,12 @@ if action:
             del st.query_params["action"]
             st.rerun()
     except Exception as e:
-        # Streamlit의 화면 전환(Rerun) 신호는 예외(Exception)로 처리되므로 가로채지 않고 통과시켜야 합니다.
-        if type(e).__name__ == 'RerunException' or e.__class__.__name__ == 'RerunException':
-            raise e
-        st.error(f"시스템 오류가 발생했습니다: {e}")
+        # Streamlit의 RerunException은 시스템 오류로 처리하면 안 됩니다.
+        err_name = type(e).__name__
+        if err_name == 'RerunException' or 'RerunException' in str(type(e)):
+            raise e 
+        else:
+            st.error(f"시스템 오류가 발생했습니다: {e}")
 
 # 브라우저 로컬 스토리지 확인 및 상태 복원 스크립트
 if not st.session_state['is_subscribed']:
@@ -66,7 +69,7 @@ if not st.session_state['is_subscribed']:
         if (localStorage.getItem('lotto_subscribed') === 'true') {
             const params = new URLSearchParams(window.location.search);
             if (!params.has('action')) {
-                window.location.href = "?action=restore_subscribe";
+                window.location.search = "action=restore_subscribe";
             }
         }
     </script>
@@ -1108,7 +1111,7 @@ def render_sidebar():
     """ Renders the content for the left sidebar. """
     st.markdown("""
         <div style="background: rgba(0,255,0,0.15); padding: 5px; border-radius: 5px; margin-bottom: 10px; font-size: 10px; color: #ccffcc; text-align: center; border: 1px solid rgba(0,255,0,0.2);">
-            v5.3 (BGM Player Fixed & NameError Resolved) 🚀
+            v5.4 (Query Params & Rerun Fixed) 🚀
         </div>
     """, unsafe_allow_html=True)
 
@@ -1173,7 +1176,7 @@ def render_sidebar():
         st.cache_data.clear()
         for key in list(st.session_state.keys()):
             del st.session_state[key]
-        st.query_params.clear()
+        st.query_params.clear() # Correct API to clear all params
         st.rerun()
 
 def render_main_content():
@@ -1184,7 +1187,7 @@ def render_main_content():
             # 1. 모든 세션 상태 삭제
             # 핵심적인 상태는 유지하고 싶을 수 있으므로 쿼리 파라미터만 정리하는 것이 깔끔할 수 있습니다.
             # 2. 쿼리 파라미터 삭제
-            st.query_params.from_dict({})
+            st.query_params.clear()
             # 3. 앱 재실행 (메인으로 리다이렉트)
             st.rerun()
         if show_tab == 'tab1': tab1_content()
