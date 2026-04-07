@@ -75,6 +75,18 @@ if not st.session_state['is_subscribed']:
     </script>
     """, unsafe_allow_html=True)
 
+def get_excluded_from_file():
+    """excluded-numbers.xlsx 파일에서 제외수 목록을 가져옵니다."""
+    file_path = "excluded-numbers.xlsx"
+    if os.path.exists(file_path):
+        try:
+            df_ex = pd.read_excel(file_path, header=None)
+            # 첫 번째 행(Row)에서 숫자만 추출
+            excluded = pd.to_numeric(df_ex.iloc[0, :], errors='coerce').dropna().astype(int).tolist()
+            return set(excluded)
+        except Exception as e:
+            print(f"제외수 파일 로드 오류: {e}")
+    return set()
 
 # ----- tab1~tab4 UI 함수 직접 정의 -----
 def get_color(n):
@@ -270,10 +282,11 @@ def tab1_content():
   if 'tab1_show_result' not in st.session_state:
     st.session_state['tab1_show_result'] = False
   
+  excluded_nums = get_excluded_from_file()
   st.markdown("""
   <div style='background-color:#111; border-radius:20px; padding:10px; text-align:center;'>
     <h2 style='color:gold; font-size:42px;'>🎵 띠별추천번호 생성기</h2>
-    <p style='color:white; font-size:20px;'>본인 띠와 출생 년도로 5조합을 확인하세요</p>
+    <p style='color:white; font-size:20px;'>본인 띠와 출생 년도로 12수 2조합을 확인하세요</p>
   </div>
   """, unsafe_allow_html=True)
   
@@ -295,14 +308,14 @@ def tab1_content():
   selected_zodiac = st.selectbox("띠 선택", list(zodiac_years.keys()), key="zodiac_select")
   selected_year = st.selectbox("출생년도 선택", zodiac_years[selected_zodiac], key="year_select")
   
-  if st.button("행운의 5조합 🎲", key="btn_zodiac5"):
+  if st.button("행운의 12수 2조합 🎲", key="btn_zodiac5"):
     base = selected_year
     all_combinations = []
-    for i in range(5):
+    for i in range(2):
       numbers = []
-      while len(numbers) < 6:
+      while len(numbers) < 12:
         num = (base + random.randint(1,999) + i*1000) % 45 + 1
-        if num not in numbers:
+        if num not in numbers and num not in excluded_nums:
           numbers.append(num)
       numbers.sort()
       all_combinations.append(numbers)
@@ -321,10 +334,11 @@ def tab2_content():
   if 'tab2_show_result' not in st.session_state:
     st.session_state['tab2_show_result'] = False
   
+  excluded_nums = get_excluded_from_file()
   st.markdown("""
   <div style='background-color:#222; border-radius:20px; padding:10px; text-align:center;'>
     <h2 style='color:deepskyblue; font-size:42px;'>🔮 주역 지역 추천</h2>
-    <p style='color:white; font-size:20px;'>방위 기반 추천을 자동 또는 수동으로 선택하세요 (5조합)</p>
+    <p style='color:white; font-size:20px;'>방위 기반 추천을 자동 또는 수동으로 선택하세요 (12수 2조합)</p>
   </div>
   """, unsafe_allow_html=True)
   
@@ -338,16 +352,16 @@ def tab2_content():
   }
   
   if mode == "자동":
-    if st.button("오늘의 방위 5조합 추천 🎲", key="jx_auto_btn2"):
+    if st.button("오늘의 방위 12수 2조합 추천 🎲", key="jx_auto_btn2"):
       all_combinations = []
-      for i in range(5):
-        numbers = [random.choice(region) for region in regions.values()]
-        while len(numbers) < 6:
+      for i in range(2):
+        numbers = [random.choice(region) for region in regions.values() if random.choice(region) not in excluded_nums]
+        while len(numbers) < 12:
           # 중복 방지: 랜덤 추가
           n = random.randint(1, 45)
-          if n not in numbers:
+          if n not in numbers and n not in excluded_nums:
             numbers.append(n)
-        numbers = numbers[:6]
+        numbers = numbers[:12]
         numbers.sort()
         all_combinations.append(numbers)
       
@@ -360,17 +374,17 @@ def tab2_content():
     day = cols[2].number_input("일",1,31,28,key="jx_day2")
     hour = cols[3].number_input("시",0,23,16,key="jx_hour2")
     
-    if st.button("수동 방위 5조합 추천 🎲", key="jx_manual_btn2"):
+    if st.button("수동 방위 12수 2조합 추천 🎲", key="jx_manual_btn2"):
       all_combinations = []
-      for i in range(5):
+      for i in range(2):
         seed = year+month+day+hour+i*1000
         rng = random.Random(seed)
-        numbers = [rng.choice(region) for region in regions.values()]
-        while len(numbers) < 6:
+        numbers = [rng.choice(region) for region in regions.values() if rng.choice(region) not in excluded_nums]
+        while len(numbers) < 12:
           n = rng.randint(1, 45)
-          if n not in numbers:
+          if n not in numbers and n not in excluded_nums:
             numbers.append(n)
-        numbers = numbers[:6]
+        numbers = numbers[:12]
         numbers.sort()
         all_combinations.append(numbers)
       
@@ -476,12 +490,24 @@ def tab3_content():
               <h3 style='color:#ffd700; margin-bottom:15px;'>👑 통계 기반 강력 추천 (Top 6)</h3>
               <div style='display:flex; justify-content:center; gap:10px; flex-wrap:wrap;'>
                   {generate_lotto_balls_html(rec_nums, size=60, font_size=24, use_flex=True)}
+  if st.button("🏆 최다 빈도 12수 2조합 추천", key="btn_stat_rec"):
+      valid_hot = [n for n in hot_nums if n not in excluded_nums]
+      if len(valid_hot) >= 12:
+          for i in range(2):
+              rec_nums = sorted(valid_hot[i*6:(i+1)*6] + random.sample([n for n in range(1,46) if n not in valid_hot and n not in excluded_nums], 6))
+              st.markdown(f"""
+              <div style='background-color:rgba(255,255,255,0.1); border-radius:15px; padding:20px; text-align:center; margin-top:15px; border:1px solid rgba(255,255,255,0.2);'>
+                  <h3 style='color:#ffd700; margin-bottom:15px;'>👑 통계 기반 추천 조합 {i+1}</h3>
+                  <div style='display:flex; justify-content:center; gap:10px; flex-wrap:wrap;'>
+                      {generate_lotto_balls_html(rec_nums, size=50, font_size=20, use_flex=True)}
+                  </div>
               </div>
               <p style='color:#ddd; margin-top:15px; font-size:14px;'>
                   선택하신 기간 동안 가장 많이 당첨된 번호 6개입니다.
               </p>
           </div>
           """, unsafe_allow_html=True)
+              """, unsafe_allow_html=True)
       else:
           st.warning("데이터가 부족하여 추천할 수 없습니다.")
 
@@ -494,6 +520,7 @@ def tab4_content():
   
   st.markdown("<h2 style='color:lime;'>🧠 AI 통합 추천</h2>", unsafe_allow_html=True)
 
+  file_excluded = get_excluded_from_file()
   # AI 분석 및 기본 데이터는 lotto-1 시트 사용
   past_results = load_lotto_data(sheet_name="lotto-1")
   if past_results is None:
@@ -599,6 +626,8 @@ def tab4_content():
     col_ex, col_fix = st.columns(2)
     with col_ex:
       excluded_numbers = st.multiselect("🚫 제외할 번호", list(range(1, 46)), key="ai_exclude_nums")
+      manual_excluded = st.multiselect("🚫 추가 제외 번호", list(range(1, 46)), key="ai_exclude_nums")
+      all_excluded = file_excluded.union(set(manual_excluded))
     with col_fix:
       fixed_numbers = st.multiselect("📌 고정할 번호 (최대 5개)", list(range(1, 46)), key="ai_fixed_nums")
       if len(fixed_numbers) > 5:
@@ -608,10 +637,10 @@ def tab4_content():
   def generate_combinations():
     combinations = []
     attempt = 0
-    max_attempts = 100  # 고정수 사용 시 조건 만족이 어려울 수 있어 시도 횟수 증가
+    max_attempts = 150
     
     # 고정수 처리 (제외수와 겹치면 제외수가 우선 -> 제외수에 있으면 고정수에서 제거)
-    real_fixed = [n for n in fixed_numbers if n not in excluded_numbers]
+    real_fixed = [n for n in fixed_numbers if n not in all_excluded]
     if len(real_fixed) > 5:
         real_fixed = real_fixed[:5]
         
@@ -626,16 +655,16 @@ def tab4_content():
         if cnt > 2:
             fixed_consecutive_violation = True
     
-    while len(combinations) < 5 and attempt < max_attempts:
+    while len(combinations) < 2 and attempt < max_attempts:
       attempt += 1
       numbers = list(real_fixed)
-      available = [n for n in range(1, 46) if n not in excluded_numbers and n not in numbers]
+      available = [n for n in range(1, 46) if n not in all_excluded and n not in numbers]
       
-      if len(numbers) + len(available) < 6:
+      if len(numbers) + len(available) < 12:
         break
       
       inner_attempt = 0
-      while len(numbers) < 6:
+      while len(numbers) < 12:
         inner_attempt += 1
         if inner_attempt > 50: # 무한 루프 방지 안전장치
             break
@@ -669,15 +698,14 @@ def tab4_content():
             numbers.pop()
             continue
       
-      if len(numbers) < 6:
+      if len(numbers) < 12:
         continue
       
-      # 홀짝 비율 검증 (2~4개가 홀수)
+      # 홀짝 비율 검증 (12수 기준 4~8개가 홀수)
       odd_count = sum(1 for n in numbers if n % 2 == 1)
-      if odd_count < 2 or odd_count > 4:
+      if odd_count < 4 or odd_count > 8:
         continue
       
-      # 구간 분포 검증 (5개 구간에 골고루 분포)
       zones = [0,0,0,0,0]
       for n in numbers:
         if n <= 10: zones[0] += 1
@@ -686,28 +714,23 @@ def tab4_content():
         elif n <= 40: zones[3] += 1
         else: zones[4] += 1
       
-      # 특정 구간에 4개 이상 몰리면 제외
-      if max(zones) > 3:
+      if max(zones) > 5:
         continue
       
-      # 번호 합계 검증 (당첨 번호 평균 합계: 115~145)
+      # 번호 합계 검증 (12수 기준 합계: 200~350)
       total_sum = sum(numbers)
-      if total_sum < 100 or total_sum > 160:
+      if total_sum < 200 or total_sum > 350:
         continue
       
       numbers.sort()
-      
-      # 중복 조합 방지
       if numbers not in combinations:
         combinations.append(numbers)
     
-    # 5개 미만이면 부족한 만큼 무작위 추가
-    while len(combinations) < 5:
-      available_fallback = [n for n in range(1, 46) if n not in excluded_numbers and n not in real_fixed]
-      if len(available_fallback) + len(real_fixed) < 6:
+    while len(combinations) < 2:
+      available_fallback = [n for n in range(1, 46) if n not in all_excluded and n not in real_fixed]
+      if len(available_fallback) + len(real_fixed) < 12:
         break
       
-      needed = 6 - len(real_fixed)
       nums = sorted(real_fixed + random.sample(available_fallback, needed))
       if nums not in combinations:
         combinations.append(nums)
@@ -1071,8 +1094,8 @@ def render_header():
 def render_sidebar():
     """ Renders the content for the left sidebar. """
     st.markdown("""
-        <div style="background: rgba(255,0,0,0.2); padding: 5px; border-radius: 5px; margin-bottom: 10px; font-size: 10px; color: #ffcccc; text-align: center;">
-            v3.7 (GitHub Access Fixed)
+        <div style="background: rgba(0,255,0,0.15); padding: 5px; border-radius: 5px; margin-bottom: 10px; font-size: 10px; color: #ccffcc; text-align: center; border: 1px solid rgba(0,255,0,0.2);">
+            v4.2 (12수 2조합 최적화 및 코드 정리 완료) 🚀
         </div>
     """, unsafe_allow_html=True)
 
