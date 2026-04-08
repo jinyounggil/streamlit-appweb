@@ -41,28 +41,30 @@ if 'is_subscribed' not in st.session_state:
 # '좋아요' 및 '구독' 클릭 처리 (st.rerun()은 예외 처리 외부에서 실행하는 것이 안전합니다)
 if "action" in st.query_params:
     action = st.query_params.get("action")
+    should_rerun = False
     try:
         if action == "restore_subscribe":
             st.session_state['is_subscribed'] = True
+            should_rerun = True
         elif action == "like":
             st.session_state.like_count += 1
+            should_rerun = True
         elif action == "subscribe":
             st.session_state['is_subscribed'] = not st.session_state['is_subscribed']
+            should_rerun = True
 
-        # 'action' 파라미터만 제거하고 'tab' 등 다른 정보는 유지합니다.
-        new_params = st.query_params.to_dict()
-        if "action" in new_params:
-            del new_params["action"]
-        
-        # from_dict 대신 clear 후 update를 사용하거나 개별 삭제를 권장합니다.
-        st.query_params.clear()
-        for k, v in new_params.items():
-            st.query_params[k] = v
-        st.rerun()
+        if should_rerun:
+            # 'action' 파라미터만 제거
+            new_params = st.query_params.to_dict()
+            new_params.pop("action", None)
+            st.query_params.clear()
+            for k, v in new_params.items():
+                st.query_params[k] = v
     except Exception as e:
-        # RerunException은 정상적인 동작이므로 무시합니다.
-        if type(e).__name__ != 'RerunException':
-            st.error(f"시스템 오류가 발생했습니다: {e}")
+        st.error(f"처리 중 오류가 발생했습니다: {e}")
+
+    if should_rerun:
+        st.rerun()
 
 # 브라우저 로컬 스토리지 확인 및 상태 복원 스크립트
 if not st.session_state['is_subscribed']:
@@ -1179,7 +1181,7 @@ def render_sidebar():
         st.cache_data.clear()
         for key in list(st.session_state.keys()):
             del st.session_state[key]
-        st.query_params.clear() # Correct API
+        st.query_params.clear()
         st.rerun()
 
 def render_main_content():
@@ -1187,11 +1189,8 @@ def render_main_content():
     show_tab = st.session_state.get('show_tab')
     if show_tab:
         if st.button("🏠 처음으로 (홈)", key="btn_return_home"):
-            # 1. 모든 세션 상태 삭제
-            # 핵심적인 상태는 유지하고 싶을 수 있으므로 쿼리 파라미터만 정리하는 것이 깔끔할 수 있습니다.
-            # 2. 쿼리 파라미터 삭제
+            # 모든 쿼리 파라미터 삭제 후 홈으로
             st.query_params.clear()
-            # 3. 앱 재실행 (메인으로 리다이렉트)
             st.rerun()
         if show_tab == 'tab1': tab1_content()
         elif show_tab == 'tab2': tab2_content()
