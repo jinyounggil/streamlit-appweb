@@ -46,20 +46,20 @@ if action:
     elif action == "subscribe":
         st.session_state['is_subscribed'] = not st.session_state['is_subscribed']
     
-    # 현재 탭 정보는 유지하면서 action만 제거 후 재실행
-    new_params = {"tab": st.session_state.get('show_tab')} if st.session_state.get('show_tab') else {}
-    st.query_params.clear()
-    for k, v in new_params.items():
-        st.query_params[k] = v
+    # 'action' 파라미터만 제거하고 상태 반영을 위해 재실행
+    if "action" in st.query_params:
+        del st.query_params["action"]
     st.rerun()
 
 # 브라우저 로컬 스토리지 확인 및 상태 복원 스크립트 (무한 루프 방지 로직 추가)
 if not st.session_state.get('is_subscribed') and not st.session_state.get('restore_attempted'):
     st.markdown("""
     <script>
-        if (localStorage.getItem('lotto_subscribed') === 'true') {
+        // sessionStorage를 사용하여 현재 세션에서 단 한 번만 실행되도록 보장
+        if (localStorage.getItem('lotto_subscribed') === 'true' && !sessionStorage.getItem('redirected')) {
             const params = new URLSearchParams(window.location.search);
             if (!params.has('action')) {
+                sessionStorage.setItem('redirected', 'true');
                 window.location.search = "action=restore_subscribe";
             }
         }
@@ -118,16 +118,20 @@ def load_lotto_data(sheet_name="lotto-1"):
     데이터는 캐시되어 앱 성능을 향상시킵니다.
     """
     try:
-        # 1. 파일 경로 처리 (공백 문제 해결을 위해 리스트에서 검색)
-        current_dir = os.path.dirname(os.path.abspath(__file__))
+        # 1. 파일 경로 처리 (리눅스/윈도우 공용 경로 확보 및 공백 대응)
+        current_dir = os.getcwd()
         target_file = None
-        for f in os.listdir(current_dir):
-            if "pd flame data-3" in f and f.endswith(".xlsm"):
-                target_file = f
+        
+        # 가능한 파일명 후보들 확인
+        possible_names = ["pd flame data-3.xlsm", "pd_flame_data_3.xlsm", "past_results.csv"]
+        for name in possible_names:
+            full_path = os.path.join(current_dir, name)
+            if os.path.exists(full_path):
+                target_file = full_path
                 break
         
         df = None
-        if target_file:
+        if target_file and target_file.endswith(".xlsm"):
             xls = pd.ExcelFile(target_file, engine='openpyxl')
             header_idx = 20 if sheet_name == "lotto-2" else None
             actual_sheet = sheet_name if sheet_name in xls.sheet_names else xls.sheet_names[0]
