@@ -19,11 +19,16 @@ import re
 from bs4 import BeautifulSoup
 import platform
 
+# Matplotlib 백엔드 설정 (서버 환경에서의 충돌 방지)
+import matplotlib
+matplotlib.use('Agg')
+
 # 페이지 설정 (가장 먼저 호출)
 st.set_page_config(layout="wide", page_title="로또킹 분석", initial_sidebar_state="collapsed")
 
 # Query-Parameter를 이용한 탭 관리
-st.session_state['show_tab'] = st.query_params.get('tab')
+if 'show_tab' not in st.session_state or 'tab' in st.query_params:
+    st.session_state['show_tab'] = st.query_params.get('tab')
 
 # 세션 상태 초기화
 if 'subscribe_count' not in st.session_state:
@@ -34,27 +39,30 @@ if 'is_subscribed' not in st.session_state:
     st.session_state['is_subscribed'] = False
 
 # '좋아요' 및 '구독' 클릭 처리 (st.rerun()은 예외 처리 외부에서 실행하는 것이 안전합니다)
-action = st.query_params.get("action")
-if action:
-    do_rerun = False
+if "action" in st.query_params:
+    action = st.query_params.get("action")
     try:
         if action == "restore_subscribe":
             st.session_state['is_subscribed'] = True
-            do_rerun = True
         elif action == "like":
             st.session_state.like_count += 1
-            do_rerun = True
         elif action == "subscribe":
             st.session_state['is_subscribed'] = not st.session_state['is_subscribed']
-            do_rerun = True
+
+        # 'action' 파라미터만 제거하고 'tab' 등 다른 정보는 유지합니다.
+        new_params = st.query_params.to_dict()
+        if "action" in new_params:
+            del new_params["action"]
         
-        if do_rerun:
-            st.query_params.clear() # 모든 액션 처리 후 파라미터 청소
-    except Exception as e:
-        st.error(f"시스템 오류가 발생했습니다: {e}")
-    
-    if do_rerun:
+        # from_dict 대신 clear 후 update를 사용하거나 개별 삭제를 권장합니다.
+        st.query_params.clear()
+        for k, v in new_params.items():
+            st.query_params[k] = v
         st.rerun()
+    except Exception as e:
+        # RerunException은 정상적인 동작이므로 무시합니다.
+        if type(e).__name__ != 'RerunException':
+            st.error(f"시스템 오류가 발생했습니다: {e}")
 
 # 브라우저 로컬 스토리지 확인 및 상태 복원 스크립트
 if not st.session_state['is_subscribed']:
@@ -126,7 +134,8 @@ def load_lotto_data(sheet_name="lotto-1"):
         target_xlsm = "pd flame data-3.xlsm"
         if os.path.exists(target_xlsm):
             try:
-                xls = pd.ExcelFile(target_xlsm)
+                # 파일명에 공백이 있는 경우를 대비해 엔진 명시 및 안전하게 로드
+                xls = pd.ExcelFile(target_xlsm, engine='openpyxl')
                 if sheet_name in xls.sheet_names:
                     # lotto-2 시트는 21행(인덱스 20)이 헤더
                     header_idx = 20 if sheet_name == "lotto-2" else None
@@ -1170,7 +1179,7 @@ def render_sidebar():
         st.cache_data.clear()
         for key in list(st.session_state.keys()):
             del st.session_state[key]
-        st.query_params.clear() # Correct API to clear all params
+        st.query_params.clear() # Correct API
         st.rerun()
 
 def render_main_content():
