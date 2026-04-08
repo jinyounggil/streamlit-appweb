@@ -38,7 +38,7 @@ for key, default in [('subscribe_count', 0), ('like_count', 0), ('is_subscribed'
 
 # '좋아요' 및 '구독' 클릭 처리 (로직 단순화 및 무한루프 방지)
 action = st.query_params.get("action")
-if action:
+if action and not st.session_state.get('action_processed'):
     if action == "restore_subscribe":
         st.session_state['is_subscribed'] = True
     elif action == "like":
@@ -46,6 +46,8 @@ if action:
     elif action == "subscribe":
         st.session_state['is_subscribed'] = not st.session_state['is_subscribed']
     
+    st.session_state['action_processed'] = True
+
     # 'action' 파라미터만 제거하고 상태 반영을 위해 재실행
     if "action" in st.query_params:
         del st.query_params["action"]
@@ -118,35 +120,31 @@ def load_lotto_data(sheet_name="lotto-1"):
     데이터는 캐시되어 앱 성능을 향상시킵니다.
     """
     try:
-        # 1. 파일 경로 처리 (리눅스/윈도우 공용 경로 확보 및 공백 대응)
-        current_dir = os.getcwd()
+        # 1. 파일 경로 처리 (공백 포함 파일명에 대한 방어 로직)
         target_file = None
-        
-        # 가능한 파일명 후보들 확인
-        possible_names = ["pd flame data-3.xlsm", "pd_flame_data_3.xlsm", "past_results.csv"]
-        for name in possible_names:
-            full_path = os.path.join(current_dir, name)
-            if os.path.exists(full_path):
-                target_file = full_path
+        for f in os.listdir("."):
+            if "pd flame data-3" in f and f.endswith(".xlsm"):
+                target_file = f
                 break
         
         df = None
-        if target_file and target_file.endswith(".xlsm"):
-            xls = pd.ExcelFile(target_file, engine='openpyxl')
-            header_idx = 20 if sheet_name == "lotto-2" else None
-            actual_sheet = sheet_name if sheet_name in xls.sheet_names else xls.sheet_names[0]
-            df = pd.read_excel(xls, sheet_name=actual_sheet, header=header_idx)
+        if target_file:
+            try:
+                xls = pd.ExcelFile(target_file, engine='openpyxl')
+                header_idx = 20 if sheet_name == "lotto-2" else None
+                actual_sheet = sheet_name if sheet_name in xls.sheet_names else xls.sheet_names[0]
+                df = pd.read_excel(xls, sheet_name=actual_sheet, header=header_idx)
+            except Exception as e:
+                print(f"Excel Load Error: {e}")
 
         # 2. XLSM 로드 실패 시 기존 CSV 파일 확인 (인코딩별 시도)
         if df is None:
-            # 인코딩 호환성을 위해 여러 인코딩 시도
-            encodings = ['utf-8-sig', 'cp949', 'euc-kr']
-            for enc in encodings:
-                try:
-                    df = pd.read_csv("past_results.csv", header=None, encoding=enc)
-                    break
-                except Exception:
-                    continue
+            if os.path.exists("past_results.csv"):
+                for enc in ['utf-8-sig', 'cp949', 'euc-kr']:
+                    try:
+                        df = pd.read_csv("past_results.csv", header=None, encoding=enc)
+                        if not df.empty: break
+                    except: continue
         
         if df is None:
             return None
