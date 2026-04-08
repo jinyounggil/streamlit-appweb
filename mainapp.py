@@ -27,47 +27,34 @@ matplotlib.use('Agg')
 st.set_page_config(layout="wide", page_title="로또킹 분석", initial_sidebar_state="collapsed")
 
 # Query-Parameter를 이용한 탭 관리
-if 'show_tab' not in st.session_state or 'tab' in st.query_params:
-    st.session_state['show_tab'] = st.query_params.get('tab')
+query_tab = st.query_params.get('tab')
+if query_tab:
+    st.session_state['show_tab'] = query_tab
 
 # 세션 상태 초기화
-if 'subscribe_count' not in st.session_state:
-    st.session_state['subscribe_count'] = 0
-if 'like_count' not in st.session_state:
-    st.session_state['like_count'] = 0
-if 'is_subscribed' not in st.session_state:
-    st.session_state['is_subscribed'] = False
+for key, default in [('subscribe_count', 0), ('like_count', 0), ('is_subscribed', False), ('show_tab', None)]:
+    if key not in st.session_state:
+        st.session_state[key] = default
 
-# '좋아요' 및 '구독' 클릭 처리 (st.rerun()은 예외 처리 외부에서 실행하는 것이 안전합니다)
-if "action" in st.query_params:
-    action = st.query_params.get("action")
-    should_rerun = False
-    try:
-        if action == "restore_subscribe":
-            st.session_state['is_subscribed'] = True
-            should_rerun = True
-        elif action == "like":
-            st.session_state.like_count += 1
-            should_rerun = True
-        elif action == "subscribe":
-            st.session_state['is_subscribed'] = not st.session_state['is_subscribed']
-            should_rerun = True
+# '좋아요' 및 '구독' 클릭 처리 (로직 단순화 및 무한루프 방지)
+action = st.query_params.get("action")
+if action:
+    if action == "restore_subscribe":
+        st.session_state['is_subscribed'] = True
+    elif action == "like":
+        st.session_state.like_count += 1
+    elif action == "subscribe":
+        st.session_state['is_subscribed'] = not st.session_state['is_subscribed']
+    
+    # 현재 탭 정보는 유지하면서 action만 제거 후 재실행
+    new_params = {"tab": st.session_state.get('show_tab')} if st.session_state.get('show_tab') else {}
+    st.query_params.clear()
+    for k, v in new_params.items():
+        st.query_params[k] = v
+    st.rerun()
 
-        if should_rerun:
-            # 'action' 파라미터만 제거
-            new_params = st.query_params.to_dict()
-            new_params.pop("action", None)
-            st.query_params.clear()
-            for k, v in new_params.items():
-                st.query_params[k] = v
-    except Exception as e:
-        st.error(f"처리 중 오류가 발생했습니다: {e}")
-
-    if should_rerun:
-        st.rerun()
-
-# 브라우저 로컬 스토리지 확인 및 상태 복원 스크립트
-if not st.session_state['is_subscribed']:
+# 브라우저 로컬 스토리지 확인 및 상태 복원 스크립트 (무한 루프 방지 로직 추가)
+if not st.session_state.get('is_subscribed') and not st.session_state.get('restore_attempted'):
     st.markdown("""
     <script>
         if (localStorage.getItem('lotto_subscribed') === 'true') {
@@ -78,6 +65,7 @@ if not st.session_state['is_subscribed']:
         }
     </script>
     """, unsafe_allow_html=True)
+    st.session_state['restore_attempted'] = True
 
 def get_excluded_from_file():
     """excluded-numbers.xlsx 파일에서 제외수 목록을 가져옵니다."""
@@ -130,23 +118,20 @@ def load_lotto_data(sheet_name="lotto-1"):
     데이터는 캐시되어 앱 성능을 향상시킵니다.
     """
     try:
+        # 1. 파일 경로 처리 (공백 문제 해결을 위해 리스트에서 검색)
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        target_file = None
+        for f in os.listdir(current_dir):
+            if "pd flame data-3" in f and f.endswith(".xlsm"):
+                target_file = f
+                break
+        
         df = None
-
-        # 1. pd flame data-3.xlsm 확인 (lotto-1: 기본/AI용, lotto-2: 통계/빈도용)
-        target_xlsm = "pd flame data-3.xlsm"
-        if os.path.exists(target_xlsm):
-            try:
-                # 파일명에 공백이 있는 경우를 대비해 엔진 명시 및 안전하게 로드
-                xls = pd.ExcelFile(target_xlsm, engine='openpyxl')
-                if sheet_name in xls.sheet_names:
-                    # lotto-2 시트는 21행(인덱스 20)이 헤더
-                    header_idx = 20 if sheet_name == "lotto-2" else None
-                    df = pd.read_excel(xls, sheet_name=sheet_name, header=header_idx)
-                else:
-                    df = pd.read_excel(xls, sheet_name=0, header=None)
-            except Exception as e:
-                print(f"XLSM 로드 오류 ({target_xlsm}): {e}")
-                st.error(f"엑셀 파일 읽기 오류 ({sheet_name}): {e}")
+        if target_file:
+            xls = pd.ExcelFile(target_file, engine='openpyxl')
+            header_idx = 20 if sheet_name == "lotto-2" else None
+            actual_sheet = sheet_name if sheet_name in xls.sheet_names else xls.sheet_names[0]
+            df = pd.read_excel(xls, sheet_name=actual_sheet, header=header_idx)
 
         # 2. XLSM 로드 실패 시 기존 CSV 파일 확인 (인코딩별 시도)
         if df is None:
@@ -1186,7 +1171,7 @@ def render_sidebar():
 
 def render_main_content():
     """ Renders the content for the right main area. """
-    show_tab = st.session_state.get('show_tab')
+    show_tab = st.session_state.get('show_tab') if st.session_state.get('show_tab') else st.query_params.get('tab')
     if show_tab:
         if st.button("🏠 처음으로 (홈)", key="btn_return_home"):
             # 모든 쿼리 파라미터 삭제 후 홈으로
